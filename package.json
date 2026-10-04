@@ -1,18 +1,18 @@
 {
   "name": "be2_proyecto_final",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "API REST para una plataforma de torneos y clínicas de hockey",
+  "main": "src/server.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "dev": "node --watch src/app.js"
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/RaulAlvarezV/be2_proyecto_final.git"
   },
   "keywords": [],
-  "author": "",
+  "author": "Raul Alvarez Villarraza",
   "license": "ISC",
   "type": "module",
   "bugs": {
@@ -21,6 +21,7 @@
   "homepage": "https://github.com/RaulAlvarezV/be2_proyecto_final#readme",
   "dependencies": {
     "dotenv": "^17.4.2",
-    "express": "^5.2.1"
+    "express": "^5.2.1",
+    "mongoose": "^9.10.4"
   }
 }
