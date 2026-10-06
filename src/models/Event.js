@@ -39,6 +39,10 @@ const eventSchema = new Schema(
             enum: ["active", "cancelled"],
             default: "active"
         },
+        category: {
+            type: Types.ObjectId,
+            ref: "Categories"
+        },
         organizer: {
             type: Types.ObjectId,
             ref: "Users"
