@@ -204,6 +204,16 @@ curl -X POST http://localhost:8080/api/sessions/register -H "Content-Type: appli
 - **En la respuesta:** el `payload` solo tiene `id`, `first_name`, `last_name`, `email` y `role`. No aparece `password` (ni en texto plano ni hasheada).
 - **En la base:** en MongoDB Compass, abrir la base `be2_proyecto_final` → colección `users`. El campo `password` empieza con `$2b$10$...`: es el hash de bcrypt, no la contraseña original.
 
+### Evidencias
+
+**Registro exitoso en Postman:** el email llega como `"Ana@Mail.com "` y se guarda normalizado como `ana@mail.com`, con rol `user`. La respuesta no incluye la contraseña.
+
+![Registro exitoso en Postman con respuesta 201 sin password](docs/evidencias/registro-postman-201.png)
+
+**Usuario guardado en MongoDB Compass:** el mismo usuario (`_id` `6ac503bc13597b7ed91711a8`, igual al `id` de la respuesta) tiene la contraseña hasheada con bcrypt (`$2b$10$...`), nunca en texto plano.
+
+![Usuario en MongoDB Compass con la contraseña hasheada](docs/evidencias/password-hasheado-compass.png)
+
 ## Rutas disponibles
 
 | Método | Ruta | Descripción | Estado |
