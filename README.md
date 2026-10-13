@@ -276,6 +276,20 @@ npm test
 
 ## Evidencias
 
+### Login, current y logout (Pre-entrega 3)
+
+**Login:** responde `200 Login correcto` y setea la cookie `currentUser` con `Max-Age=3600`, `HttpOnly` y `SameSite=Lax` (sin `Secure` porque corre en desarrollo, por `http`).
+
+![Login con la cookie currentUser en los headers de la respuesta](docs/evidencias/login-cookie.png)
+
+**`/current` con la cookie:** responde `200` con `{ id, email, role }`, sin la contraseña. El `id` es el mismo del usuario registrado en la Pre-entrega 2.
+
+![GET /api/sessions/current con la cookie respondiendo 200](docs/evidencias/current-200.png)
+
+**`/current` sin cookie:** después del logout la cookie ya no está, y la ruta protegida responde `401 No autenticado`.
+
+![GET /api/sessions/current sin cookie respondiendo 401](docs/evidencias/current-401.png)
+
 ### Registro (Pre-entrega 2)
 
 **Registro exitoso en Postman:** el email llega como `"Ana@Mail.com "` y se guarda normalizado como `ana@mail.com`, con rol `user`. La respuesta no incluye la contraseña.
