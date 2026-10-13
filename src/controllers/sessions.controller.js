@@ -24,10 +24,12 @@ export async function login(req, res, next) {
     }
 }
 
-// Current y logout se suman en los próximos pasos
-function notImplemented(_req, res) {
-    res.status(501).json({ status: "error", message: "Funcionalidad en desarrollo" });
+// req.user lo carga el middleware auth: solo id, email y role (nunca la contraseña)
+export function current(req, res) {
+    res.status(200).json({ status: "success", payload: req.user });
 }
 
-export const current = notImplemented;
-export const logout = notImplemented;
+// El logout se suma en el próximo paso
+export function logout(_req, res) {
+    res.status(501).json({ status: "error", message: "Funcionalidad en desarrollo" });
+}
