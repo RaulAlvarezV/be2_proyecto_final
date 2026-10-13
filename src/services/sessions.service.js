@@ -48,6 +48,12 @@ class SessionsService {
             throw new AppError("Formato de email inválido", 400);
         }
 
+        // Mismo criterio que el nombre: una contraseña de solo espacios no vale.
+        // No se recorta la que se guarda, porque los espacios pueden ser parte de la contraseña
+        if (!password.trim()) {
+            throw new AppError("La contraseña no puede estar vacía", 400);
+        }
+
         if (password.length < MIN_PASSWORD_LENGTH) {
             throw new AppError(`La contraseña debe tener al menos ${MIN_PASSWORD_LENGTH} caracteres`, 400);
         }
