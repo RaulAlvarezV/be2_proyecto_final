@@ -1,5 +1,5 @@
 import { usersRepository } from "../repositories/users.repository.js";
-import { createHash } from "../utils/hash.js";
+import { createHash, isValidPassword } from "../utils/hash.js";
 import { AppError } from "../utils/errors.js";
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -17,7 +17,8 @@ function toPublicUser(user) {
     };
 }
 
-class SessionsService {
+// Se exporta la clase para poder probarla con un repository falso (inyección de dependencias)
+export class SessionsService {
     constructor(repository) {
         this.repository = repository;
     }
@@ -72,6 +73,32 @@ class SessionsService {
         });
 
         return toPublicUser(newUser);
+    }
+
+    async login(data = {}) {
+        const { email, password } = data;
+
+        if (!email || !password) {
+            throw new AppError("Email y contraseña son obligatorios", 400);
+        }
+
+        if (typeof email !== "string" || typeof password !== "string") {
+            throw new AppError("Los campos deben ser texto", 400);
+        }
+
+        const user = await this.repository.getByEmail(email.trim().toLowerCase());
+
+        // Mismo mensaje si no existe el email o si la contraseña no coincide: no se da ninguna pista
+        if (!user || !(await isValidPassword(password, user.password))) {
+            throw new AppError("Credenciales inválidas", 401);
+        }
+
+        // Datos mínimos para el token: nunca la contraseña
+        return {
+            id: user._id.toString(),
+            email: user.email,
+            role: user.role
+        };
     }
 }
 
