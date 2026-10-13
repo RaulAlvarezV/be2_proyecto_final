@@ -1,4 +1,3 @@
-import { sessionsService } from "../services/sessions.service.js";
 import { generateToken } from "../utils/jwt.js";
 import { COOKIE_NAME, cookieOptions } from "../config/cookie.js";
 
@@ -7,17 +6,13 @@ export function register(req, res) {
     res.status(201).json({ status: "success", payload: req.user });
 }
 
-export async function login(req, res, next) {
-    try {
-        // El service valida las credenciales y devuelve solo { id, email, role }
-        const tokenUser = await sessionsService.login(req.body);
-        const token = generateToken(tokenUser);
+// La estrategia login ya validó las credenciales y dejó { id, email, role } en req.user.
+// El token y la cookie los genera el controller, no Passport
+export function login(req, res) {
+    const token = generateToken(req.user);
 
-        res.cookie(COOKIE_NAME, token, cookieOptions);
-        res.status(200).json({ status: "success", message: "Login correcto" });
-    } catch (error) {
-        next(error);
-    }
+    res.cookie(COOKIE_NAME, token, cookieOptions);
+    res.status(200).json({ status: "success", message: "Login correcto" });
 }
 
 // req.user lo carga el middleware auth: solo id, email y role (nunca la contraseña)

@@ -1,7 +1,7 @@
 import passport from "passport";
 import { Strategy as LocalStrategy } from "passport-local";
 import { usersRepository } from "../repositories/users.repository.js";
-import { createHash } from "../utils/hash.js";
+import { createHash, isValidPassword } from "../utils/hash.js";
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MIN_PASSWORD_LENGTH = 8;
@@ -80,8 +80,39 @@ function registerStrategy(repository) {
     ));
 }
 
+// Estrategia login: valida las credenciales. El JWT y la cookie los genera el controller, no la estrategia
+function loginStrategy(repository) {
+    passport.use("login", new LocalStrategy(
+        { usernameField: "email" },
+        async (email, password, done) => {
+            try {
+                if (typeof email !== "string" || typeof password !== "string") {
+                    return fail(done, "Los campos deben ser texto", 400);
+                }
+
+                const user = await repository.getByEmail(email.trim().toLowerCase());
+
+                // Mismo mensaje si no existe el email o si la contraseña no coincide: no se da ninguna pista
+                if (!user || !(await isValidPassword(password, user.password))) {
+                    return fail(done, "Credenciales inválidas", 401);
+                }
+
+                // Datos mínimos para el token: nunca la contraseña
+                return done(null, {
+                    id: user._id.toString(),
+                    email: user.email,
+                    role: user.role
+                });
+            } catch (error) {
+                return done(error);
+            }
+        }
+    ));
+}
+
 // Registra todas las estrategias. Para sumar un proveedor externo (Google, GitHub, etc.)
 // se agrega su función acá, sin tocar app.js. Recibe el repository para poder probarlas con uno falso
 export function initializePassport(repository = usersRepository) {
     registerStrategy(repository);
+    loginStrategy(repository);
 }
