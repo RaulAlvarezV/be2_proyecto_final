@@ -2,13 +2,9 @@ import { sessionsService } from "../services/sessions.service.js";
 import { generateToken } from "../utils/jwt.js";
 import { COOKIE_NAME, cookieOptions } from "../config/cookie.js";
 
-export async function register(req, res, next) {
-    try {
-        const user = await sessionsService.register(req.body);
-        res.status(201).json({ status: "success", payload: user });
-    } catch (error) {
-        next(error);
-    }
+// La estrategia register de Passport ya validó y creó el usuario: queda en req.user (sin contraseña)
+export function register(req, res) {
+    res.status(201).json({ status: "success", payload: req.user });
 }
 
 export async function login(req, res, next) {

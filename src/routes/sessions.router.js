@@ -1,10 +1,11 @@
 import { Router } from "express";
 import { register, login, current, logout } from "../controllers/sessions.controller.js";
-import { auth } from "../middlewares/auth.middleware.js";
+import { auth, passportCall } from "../middlewares/auth.middleware.js";
 
 const router = Router();
 
-router.post("/register", register);
+// La ruta solo delega en la estrategia de Passport y en el controller
+router.post("/register", passportCall("register"), register);
 router.post("/login", login);
 router.get("/current", auth, current);
 router.post("/logout", logout);
