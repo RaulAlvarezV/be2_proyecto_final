@@ -29,7 +29,10 @@ export function current(req, res) {
     res.status(200).json({ status: "success", payload: req.user });
 }
 
-// El logout se suma en el próximo paso
+// Borra la cookie con las mismas opciones con las que se creó (sin maxAge)
 export function logout(_req, res) {
-    res.status(501).json({ status: "error", message: "Funcionalidad en desarrollo" });
+    const { maxAge: _maxAge, ...clearOptions } = cookieOptions;
+
+    res.clearCookie(COOKIE_NAME, clearOptions);
+    res.status(200).json({ status: "success", message: "Sesión cerrada" });
 }
