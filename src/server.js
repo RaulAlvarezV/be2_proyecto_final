@@ -2,9 +2,15 @@ import app from "./app.js";
 import { env } from "./config/env.js";
 import { connectDB } from "./config/db.js";
 
+// Sin la clave no se pueden firmar ni verificar los tokens: el servidor no arranca
+if (!env.JWT_SECRET) {
+    console.error("Falta la variable de entorno JWT_SECRET (ver .env.example)");
+    process.exit(1);
+}
+
 app.listen(env.PORT, () => {
     console.log("Servidor escuchando en el puerto " + env.PORT);
     connectDB()
         .then(() => console.log("Conectado a la base de datos"))
-        .catch(error => console.log("Error al conectar a la base de datos", error.message));
+        .catch(error => console.error("Error al conectar a la base de datos", error.message));
 });
