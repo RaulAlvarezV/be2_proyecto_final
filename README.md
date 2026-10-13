@@ -2,7 +2,7 @@
 
 Proyecto final de Backend II (Coderhouse). API REST para gestionar torneos y clínicas de hockey sobre césped: usuarios, eventos, categorías e inscripciones.
 
-Esta versión corresponde a la **Pre-entrega 3**: suma la **autenticación con JWT y cookies** (login, ruta protegida `/current` y logout) sobre el registro seguro de la Pre-entrega 2 y la base por capas de la Pre-entrega 1.
+Esta versión corresponde a la **Pre-entrega 4**: la autenticación (registro, login y usuario actual) pasa a estar **centralizada en estrategias de Passport.js**. Las rutas y sus respuestas son **las mismas que en la Pre-entrega 3** (JWT en la cookie HTTP Only `currentUser`); lo que cambia es la organización interna.
 
 ## Temática
 
@@ -33,10 +33,36 @@ Todo usuario nuevo se registra con rol `user`. El rol nunca se toma del body del
 - bcrypt (hash de contraseñas)
 - jsonwebtoken (JWT)
 - cookie-parser (lectura de la cookie de autenticación)
+- Passport.js: `passport`, `passport-local` (registro y login) y `passport-jwt` (usuario actual)
 - node:test (tests automatizados, incluido en Node)
 - Módulos ESM (`import` / `export`)
 
-Próximas entregas: Passport, roles y autorización, Nodemailer.
+Próximas entregas: roles y autorización, Nodemailer.
+
+## Autenticación con Passport
+
+Toda la autenticación está centralizada en **`src/config/passport.config.js`**. `app.js` solo llama a `initializePassport()` y `passport.initialize()`.
+
+| Estrategia | Tipo | Qué hace | Ruta que la usa |
+| --- | --- | --- | --- |
+| `register` | `passport-local` | Valida los campos, normaliza el email, controla duplicados, hashea la contraseña con bcrypt y crea el usuario con rol `user` | `POST /api/sessions/register` |
+| `login` | `passport-local` | Busca al usuario por email y compara la contraseña con bcrypt. Si algo no coincide responde `Credenciales inválidas` | `POST /api/sessions/login` |
+| `current` | `passport-jwt` | Lee el JWT de la cookie `currentUser`, verifica firma y vencimiento (algoritmo `HS256` fijado por el servidor) y busca al usuario por el id del token | `GET /api/sessions/current` |
+
+- **Las rutas solo delegan:** `router.post("/login", passportCall("login"), login)`. `passportCall` ejecuta `passport.authenticate(estrategia, { session: false })` y, si la autenticación falla, responde en JSON con el código que indica la estrategia (400, 401 o 409), así el contrato de la API no cambia.
+- **El JWT y la cookie los genera el controller**, no Passport: la estrategia `login` solo valida las credenciales y deja `{ id, email, role }` en `req.user`.
+- **El logout no pasa por Passport:** solo borra la cookie.
+- **`session: false`:** la sesión la representa el JWT en la cookie, Passport no guarda sesiones en el servidor.
+
+### Preparado para proveedores externos (Google, GitHub)
+
+`initializePassport()` registra cada estrategia con una función propia. Para sumar, por ejemplo, login con GitHub:
+
+1. Instalar la estrategia (`npm install passport-github2`).
+2. Agregar en `passport.config.js` una función `githubStrategy(repository)` que busque o cree el usuario local con los datos que devuelve GitHub, y llamarla dentro de `initializePassport()`.
+3. Sumar al `.env` sus credenciales (`GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `GITHUB_CALLBACK_URL`) y las rutas de inicio y callback en `sessions.router.js`, que también generan el JWT propio de la API en el controller.
+
+No hace falta tocar `app.js`: ya inicializa Passport y registra todo lo que esté en `initializePassport()`.
 
 ## Instalación
 
@@ -85,23 +111,23 @@ npm test
 
 ```
 src/
-├── app.js                       # configura Express (json, cookie-parser y rutas), no levanta el servidor
-├── server.js                    # valida JWT_SECRET, levanta el servidor y conecta la base
+├── app.js                       # configura Express (json, cookie-parser, Passport y rutas), no levanta el servidor
+├── server.js                    # valida JWT_SECRET, carga la app, levanta el servidor y conecta la base
 ├── config/
 │   ├── env.js                   # variables de entorno con dotenv
 │   ├── db.js                    # conexión a MongoDB
-│   └── cookie.js                # nombre y opciones de la cookie currentUser
+│   ├── cookie.js                # nombre y opciones de la cookie currentUser
+│   └── passport.config.js       # estrategias register, login y current (initializePassport)
 ├── routes/
 │   ├── health.router.js
 │   ├── events.router.js
-│   └── sessions.router.js       # register, login, current (protegida) y logout
+│   └── sessions.router.js       # las rutas delegan en las estrategias de Passport
 ├── controllers/
 │   ├── health.controller.js
 │   ├── events.controller.js
 │   └── sessions.controller.js   # responde, genera el token y maneja la cookie
 ├── services/
-│   ├── events.service.js
-│   └── sessions.service.js      # validaciones, registro y login
+│   └── events.service.js
 ├── repositories/
 │   ├── events.repository.js
 │   └── users.repository.js
@@ -114,24 +140,28 @@ src/
 │   ├── Category.js
 │   └── Registration.js
 ├── middlewares/
-│   ├── auth.middleware.js       # lee la cookie, verifica el JWT y carga req.user
+│   ├── auth.middleware.js       # passportCall y auth (estrategia current) para las rutas protegidas
 │   └── error.middleware.js      # rutas no encontradas y manejo global de errores
 └── utils/
     ├── jwt.js                   # generateToken y verifyToken
-    ├── hash.js                  # createHash e isValidPassword (bcrypt)
-    └── errors.js                # error con código de estado (AppError)
+    └── hash.js                  # createHash e isValidPassword (bcrypt)
 tests/
-├── sessions.service.test.js     # registro y login con un repository falso (sin MongoDB)
-└── auth.test.js                 # helper de JWT y middleware auth
+├── passport.strategies.test.js  # estrategias register, login y current con un repository falso (sin MongoDB)
+└── jwt.test.js                  # helper de JWT
 ```
 
-Flujo de una petición protegida:
+Flujo del login y de una petición protegida:
 
 ```
+POST /api/sessions/login
+  → sessions.router.js
+  → passportCall("login")        (estrategia login de passport.config.js → req.user = { id, email, role })
+  → sessions.controller.js       (genera el JWT y setea la cookie currentUser)
+
 GET /api/sessions/current
   → sessions.router.js
-  → auth.middleware.js      (cookie currentUser → verifyToken → req.user)
-  → sessions.controller.js  (responde { id, email, role })
+  → auth = passportCall("current")  (estrategia current: cookie → JWT → usuario → req.user)
+  → sessions.controller.js          (responde { id, email, role })
 ```
 
 ## Rutas
@@ -208,7 +238,7 @@ El JWT se firma con `JWT_SECRET`, vence según `JWT_EXPIRES_IN` y su payload tie
 
 ### `GET /api/sessions/current`
 
-Protegida por el middleware `auth`: lee la cookie `currentUser`, verifica el JWT y deja los datos del usuario en `req.user`.
+Protegida por el middleware `auth`, que ejecuta la **estrategia `current` de Passport**: lee la cookie `currentUser`, verifica el JWT, busca al usuario por el id del token y deja `{ id, email, role }` en `req.user`.
 
 Response `200` (con la cookie):
 
@@ -267,12 +297,12 @@ Para ver los errores del login: repetir el paso 2 con un email que no existe y d
 npm test
 ```
 
-18 tests con `node:test` (incluido en Node, sin dependencias extra). No necesitan MongoDB: el servicio se prueba con un **repository falso en memoria**, aprovechando la inyección de dependencias.
+18 tests con `node:test` (incluido en Node, sin dependencias extra). No necesitan MongoDB: las estrategias se registran con un **repository falso en memoria** (`initializePassport(repositoryFalso)`), aprovechando la inyección de dependencias, y se ejecutan a través de `passportCall`, igual que en la app.
 
 | Archivo | Qué prueba |
 | --- | --- |
-| `tests/sessions.service.test.js` | Registro exitoso, email normalizado, contraseña hasheada (no en texto plano), rol ignorado, duplicados (409), campos faltantes, inválidos o de solo espacios (400), respuesta sin contraseña, login correcto y el mismo 401 para email inexistente y contraseña incorrecta |
-| `tests/auth.test.js` | Helper de JWT (payload, expiración, token alterado) y middleware `auth` (token válido, sin cookie, token alterado, mal formado, vencido o de otra clave) |
+| `tests/passport.strategies.test.js` | **register:** éxito sin contraseña en la respuesta, hash bcrypt, rol ignorado, duplicado (409), campos faltantes, inválidos o de solo espacios (400). **login:** éxito con `{ id, email, role }` y el mismo 401 para email inexistente y contraseña incorrecta. **current:** token válido, sin cookie, alterado, mal formado, vencido, de otra clave, sin firma (`alg: none`) y usuario inexistente |
+| `tests/jwt.test.js` | Helper de JWT: payload, expiración y token alterado |
 
 ## Evidencias
 
