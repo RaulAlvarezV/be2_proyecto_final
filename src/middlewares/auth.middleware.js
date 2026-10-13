@@ -1,6 +1,17 @@
 import passport from "passport";
-import { verifyToken } from "../utils/jwt.js";
-import { COOKIE_NAME } from "../config/cookie.js";
+
+// Mensaje para el cliente cuando falla la autenticación, sin exponer detalles internos
+function failureMessage(info) {
+    // passport-jwt informa los problemas del token como errores (sin token, vencido, alterado, mal formado)
+    if (info instanceof Error) {
+        if (info.message === "No auth token") return "No autenticado";
+
+        console.error("Token rechazado:", info.name, info.message);
+        return "Token inválido o expirado";
+    }
+
+    return info?.message || "No autenticado";
+}
 
 /**
  * Ejecuta una estrategia de Passport y responde en JSON si la autenticación falla.
@@ -14,7 +25,7 @@ export function passportCall(strategy, { missingMessage = "Faltan campos obligat
             if (error) return next(error);
 
             if (!user) {
-                return res.status(info?.status || status || 401).json({ status: "error", message: info?.message || "No autenticado" });
+                return res.status(info?.status || status || 401).json({ status: "error", message: failureMessage(info) });
             }
 
             req.user = user;
@@ -23,21 +34,5 @@ export function passportCall(strategy, { missingMessage = "Faltan campos obligat
     };
 }
 
-// Lee el JWT de la cookie, lo verifica y deja los datos del usuario en req.user
-export function auth(req, res, next) {
-    const token = req.cookies?.[COOKIE_NAME];
-
-    if (!token) {
-        return res.status(401).json({ status: "error", message: "No autenticado" });
-    }
-
-    try {
-        const { id, email, role } = verifyToken(token);
-        req.user = { id, email, role };
-        return next();
-    } catch (error) {
-        // Token vencido, alterado o mal formado: se rechaza sin dar detalles al cliente
-        console.error("Token rechazado:", error.name, error.message);
-        return res.status(401).json({ status: "error", message: "Token inválido o expirado" });
-    }
-}
+// Middleware para las rutas protegidas: usa la estrategia current (JWT de la cookie currentUser)
+export const auth = passportCall("current");

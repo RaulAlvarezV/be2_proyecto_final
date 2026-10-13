@@ -1,5 +1,8 @@
 import passport from "passport";
 import { Strategy as LocalStrategy } from "passport-local";
+import { Strategy as JwtStrategy } from "passport-jwt";
+import { env } from "./env.js";
+import { COOKIE_NAME } from "./cookie.js";
 import { usersRepository } from "../repositories/users.repository.js";
 import { createHash, isValidPassword } from "../utils/hash.js";
 
@@ -110,9 +113,42 @@ function loginStrategy(repository) {
     ));
 }
 
+// Le indica a passport-jwt de dónde sacar el token: de la cookie currentUser (no del header)
+const cookieExtractor = req => req?.cookies?.[COOKIE_NAME] ?? null;
+
+// Estrategia current: verifica el JWT de la cookie (firma y vencimiento) y busca al usuario por el id del token
+function currentStrategy(repository) {
+    passport.use("current", new JwtStrategy(
+        {
+            jwtFromRequest: cookieExtractor,
+            secretOrKey: env.JWT_SECRET,
+            algorithms: ["HS256"] // el algoritmo lo fija el servidor, no el header del token
+        },
+        async (jwtPayload, done) => {
+            try {
+                // Se busca en la base para confirmar que la cuenta sigue existiendo y tener el rol actualizado
+                const user = await repository.getById(jwtPayload.id);
+                if (!user) {
+                    return fail(done, "Usuario no encontrado", 401);
+                }
+
+                // Solo id, email y role: nunca la contraseña
+                return done(null, {
+                    id: user._id.toString(),
+                    email: user.email,
+                    role: user.role
+                });
+            } catch (error) {
+                return done(error);
+            }
+        }
+    ));
+}
+
 // Registra todas las estrategias. Para sumar un proveedor externo (Google, GitHub, etc.)
 // se agrega su función acá, sin tocar app.js. Recibe el repository para poder probarlas con uno falso
 export function initializePassport(repository = usersRepository) {
     registerStrategy(repository);
     loginStrategy(repository);
+    currentStrategy(repository);
 }
