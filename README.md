@@ -2,7 +2,7 @@
 
 Proyecto final de Backend II (Coderhouse). API REST para gestionar torneos y clínicas de hockey sobre césped: usuarios, eventos, categorías e inscripciones.
 
-Esta versión corresponde a la **Pre-entrega 2**: suma el **registro seguro de usuarios** (`POST /api/sessions/register`) sobre la base por capas de la Pre-entrega 1, con validaciones, normalización del email, contraseña hasheada con bcrypt y respuestas sin datos sensibles.
+Esta versión corresponde a la **Pre-entrega 3**: suma la **autenticación con JWT y cookies** (login, ruta protegida `/current` y logout) sobre el registro seguro de la Pre-entrega 2 y la base por capas de la Pre-entrega 1.
 
 ## Temática
 
@@ -27,14 +27,16 @@ Todo usuario nuevo se registra con rol `user`. El rol nunca se toma del body del
 
 ## Tecnologías
 
-- Node.js
-- Express
-- MongoDB + Mongoose
+- Node.js y Express
+- MongoDB + Mongoose (local o MongoDB Atlas)
 - dotenv
 - bcrypt (hash de contraseñas)
+- jsonwebtoken (JWT)
+- cookie-parser (lectura de la cookie de autenticación)
+- node:test (tests automatizados, incluido en Node)
 - Módulos ESM (`import` / `export`)
 
-Próximas entregas: JWT, cookie-parser, Passport y Nodemailer.
+Próximas entregas: Passport, roles y autorización, Nodemailer.
 
 ## Instalación
 
@@ -53,14 +55,16 @@ PORT=8080
 NODE_ENV=development
 MONGO_URL=mongodb://localhost:27017/be2_proyecto_final
 JWT_SECRET=
+JWT_EXPIRES_IN=1h
 ```
 
 | Variable | Descripción |
 | --- | --- |
 | `PORT` | Puerto del servidor (por defecto 8080) |
-| `NODE_ENV` | Entorno de ejecución (`development` / `production`) |
+| `NODE_ENV` | Entorno (`development` / `production`). En `production` la cookie se envía solo por HTTPS (`secure`) |
 | `MONGO_URL` | Cadena de conexión a MongoDB (local o Atlas) |
-| `JWT_SECRET` | Clave para firmar los tokens (se usa a partir de la próxima entrega) |
+| `JWT_SECRET` | Clave para firmar y verificar los JWT. **Obligatoria**: sin ella el servidor no arranca. Usar una clave larga y aleatoria |
+| `JWT_EXPIRES_IN` | Duración del token (por defecto `1h`) |
 
 El archivo `.env` no se sube al repositorio.
 
@@ -72,28 +76,32 @@ npm run dev
 
 # producción
 npm start
+
+# tests automatizados
+npm test
 ```
 
 ## Estructura de carpetas
 
 ```
 src/
-├── app.js              # configura Express (middlewares y rutas), no levanta el servidor
-├── server.js           # levanta el servidor y conecta la base de datos
+├── app.js                       # configura Express (json, cookie-parser y rutas), no levanta el servidor
+├── server.js                    # valida JWT_SECRET, levanta el servidor y conecta la base
 ├── config/
-│   ├── env.js          # lectura de variables de entorno con dotenv
-│   └── db.js           # conexión a MongoDB
+│   ├── env.js                   # variables de entorno con dotenv
+│   ├── db.js                    # conexión a MongoDB
+│   └── cookie.js                # nombre y opciones de la cookie currentUser
 ├── routes/
 │   ├── health.router.js
 │   ├── events.router.js
-│   └── sessions.router.js
+│   └── sessions.router.js       # register, login, current (protegida) y logout
 ├── controllers/
 │   ├── health.controller.js
 │   ├── events.controller.js
-│   └── sessions.controller.js
+│   └── sessions.controller.js   # responde, genera el token y maneja la cookie
 ├── services/
 │   ├── events.service.js
-│   └── sessions.service.js     # validaciones y lógica del registro
+│   └── sessions.service.js      # validaciones, registro y login
 ├── repositories/
 │   ├── events.repository.js
 │   └── users.repository.js
@@ -106,126 +114,122 @@ src/
 │   ├── Category.js
 │   └── Registration.js
 ├── middlewares/
-│   └── error.middleware.js     # rutas no encontradas y manejo global de errores
+│   ├── auth.middleware.js       # lee la cookie, verifica el JWT y carga req.user
+│   └── error.middleware.js      # rutas no encontradas y manejo global de errores
 └── utils/
-    ├── hash.js                 # bcrypt reutilizable: createHash e isValidPassword
-    └── errors.js               # error con código de estado (AppError)
+    ├── jwt.js                   # generateToken y verifyToken
+    ├── hash.js                  # createHash e isValidPassword (bcrypt)
+    └── errors.js                # error con código de estado (AppError)
+tests/
+├── sessions.service.test.js     # registro y login con un repository falso (sin MongoDB)
+└── auth.test.js                 # helper de JWT y middleware auth
 ```
 
-Flujo del registro:
+Flujo de una petición protegida:
 
 ```
-POST /api/sessions/register
-  → sessions.router.js       (define el endpoint)
-  → sessions.controller.js   (recibe la request y responde)
-  → sessions.service.js      (valida, normaliza, controla duplicados, hashea)
-  → users.repository.js      (operaciones de datos)
-  → users.dao.js             (Mongoose)
-  → User.js                  (modelo)
-  → MongoDB
+GET /api/sessions/current
+  → sessions.router.js
+  → auth.middleware.js      (cookie currentUser → verifyToken → req.user)
+  → sessions.controller.js  (responde { id, email, role })
 ```
 
-## Registro de usuarios
+## Rutas
+
+| Método | Ruta | Descripción | Acceso |
+| --- | --- | --- | --- |
+| GET | `/api/health` | Verifica que el servidor esté activo | Público |
+| GET | `/api/events` | Lista de torneos y clínicas | Público |
+| POST | `/api/sessions/register` | Registro seguro de usuario | Público |
+| POST | `/api/sessions/login` | Inicio de sesión: genera el JWT y lo guarda en la cookie `currentUser` | Público |
+| GET | `/api/sessions/current` | Datos del usuario autenticado | **Requiere cookie** |
+| POST | `/api/sessions/logout` | Cierra la sesión borrando la cookie | Público |
 
 ### `POST /api/sessions/register`
 
-**Campos que espera el body (JSON):**
+| Campo | Tipo | Reglas |
+| --- | --- | --- |
+| `first_name` | texto | Obligatorio, no vacío |
+| `last_name` | texto | Obligatorio, no vacío |
+| `email` | texto | Obligatorio, formato válido, único. Se guarda sin espacios y en minúsculas |
+| `password` | texto | Obligatorio, mínimo 8 caracteres, no puede ser solo espacios. Se guarda hasheada con bcrypt |
 
-| Campo | Tipo | Obligatorio | Reglas |
-| --- | --- | --- | --- |
-| `first_name` | texto | Sí | No puede estar vacío |
-| `last_name` | texto | Sí | No puede estar vacío |
-| `email` | texto | Sí | Formato válido. Se guarda sin espacios y en minúsculas. No puede repetirse |
-| `password` | texto | Sí | Mínimo 8 caracteres. Se guarda hasheada con bcrypt |
-
-Si el body incluye `role`, se ignora: todo registro público se crea con rol `user`.
-
-**Request:**
+Request:
 
 ```json
-{
-  "first_name": "Ana",
-  "last_name": "Pérez",
-  "email": "Ana@Mail.com ",
-  "password": "Secreta123"
-}
+{ "first_name": "Ana", "last_name": "Pérez", "email": "Ana@Mail.com ", "password": "Secreta123" }
 ```
 
-**Respuestas:**
-
-`201` (email normalizado, sin contraseña):
+Response `201`:
 
 ```json
-{
-  "status": "success",
-  "payload": {
-    "id": "665f2a...",
-    "first_name": "Ana",
-    "last_name": "Pérez",
-    "email": "ana@mail.com",
-    "role": "user"
-  }
-}
-```
-
-`400` (campos faltantes):
-
-```json
-{ "status": "error", "message": "Faltan campos obligatorios" }
+{ "status": "success", "payload": { "id": "665f2a...", "first_name": "Ana", "last_name": "Pérez", "email": "ana@mail.com", "role": "user" } }
 ```
 
 | Código | Mensaje | Cuándo |
 | --- | --- | --- |
-| `400` | `Faltan campos obligatorios` | Falta `first_name`, `last_name`, `email` o `password` |
-| `400` | `Formato de email inválido` | El email no tiene formato válido (por ejemplo `anamail.com`) |
-| `400` | `La contraseña debe tener al menos 8 caracteres` | Contraseña demasiado corta |
-| `400` | `Los campos deben ser texto` | Algún campo no es texto (por ejemplo un número) |
+| `400` | `Faltan campos obligatorios` | Falta algún campo |
+| `400` | `Formato de email inválido` | Email mal escrito |
+| `400` | `La contraseña debe tener al menos 8 caracteres` | Contraseña corta |
+| `400` | `La contraseña no puede estar vacía` | Contraseña de solo espacios |
+| `400` | `Los campos deben ser texto` | Algún campo no es texto |
 | `400` | `El nombre y el apellido no pueden estar vacíos` | Nombre o apellido con solo espacios |
-| `400` | `El cuerpo de la petición no es un JSON válido` | El body está mal formado |
-| `409` | `El email ya está registrado` | Ya existe un usuario con ese email (aunque venga con mayúsculas o espacios) |
+| `409` | `El email ya está registrado` | Email repetido (aunque cambien mayúsculas o espacios) |
 
-### Cómo probarlo
+### `POST /api/sessions/login`
 
-1. Levantar el servidor con `npm run dev`.
-2. En **Postman** (o Insomnia) crear una request **POST** a `http://localhost:8080/api/sessions/register`.
-3. En **Body** elegir **raw** → **JSON** y pegar el ejemplo de arriba. Enviar: responde `201`.
-4. Volver a enviar la misma request: responde `409` (email ya registrado).
-5. Borrar `first_name` del body y enviar: responde `400` (faltan campos obligatorios).
-6. Cambiar el email por `anamail.com`: responde `400` (formato de email inválido).
+Request:
 
-También con curl:
-
-```bash
-curl -X POST http://localhost:8080/api/sessions/register -H "Content-Type: application/json" -d "{\"first_name\":\"Ana\",\"last_name\":\"Pérez\",\"email\":\"Ana@Mail.com \",\"password\":\"Secreta123\"}"
+```json
+{ "email": "ana@mail.com", "password": "Secreta123" }
 ```
 
-### Cómo verificar que la contraseña está protegida
+Response `200` (además setea la cookie `currentUser`):
 
-- **En la respuesta:** el `payload` solo tiene `id`, `first_name`, `last_name`, `email` y `role`. No aparece `password` (ni en texto plano ni hasheada).
-- **En la base:** en MongoDB Compass, abrir la base `be2_proyecto_final` → colección `users`. El campo `password` empieza con `$2b$10$...`: es el hash de bcrypt, no la contraseña original.
+```json
+{ "status": "success", "message": "Login correcto" }
+```
 
-### Evidencias
+La cookie `currentUser` guarda el JWT con estas opciones:
 
-**Registro exitoso en Postman:** el email llega como `"Ana@Mail.com "` y se guarda normalizado como `ana@mail.com`, con rol `user`. La respuesta no incluye la contraseña.
+| Opción | Valor | Para qué |
+| --- | --- | --- |
+| `httpOnly` | `true` | JavaScript del navegador no puede leerla (protege de XSS) |
+| `sameSite` | `"lax"` | No se envía en peticiones que vienen de otros sitios (CSRF) |
+| `maxAge` | `3600000` | Dura 1 hora |
+| `secure` | `true` solo en producción | Solo viaja por HTTPS |
 
-![Registro exitoso en Postman con respuesta 201 sin password](docs/evidencias/registro-postman-201.png)
+El JWT se firma con `JWT_SECRET`, vence según `JWT_EXPIRES_IN` y su payload tiene **solo** `{ id, email, role }`: nunca la contraseña. El token no se devuelve en el body.
 
-**Usuario guardado en MongoDB Compass:** el mismo usuario (`_id` `6ac503bc13597b7ed91711a8`, igual al `id` de la respuesta) tiene la contraseña hasheada con bcrypt (`$2b$10$...`), nunca en texto plano.
+| Código | Mensaje | Cuándo |
+| --- | --- | --- |
+| `400` | `Email y contraseña son obligatorios` | Falta el email o la contraseña |
+| `401` | `Credenciales inválidas` | El email no existe **o** la contraseña no coincide. Es el mismo mensaje a propósito, para no revelar qué dato falló |
 
-![Usuario en MongoDB Compass con la contraseña hasheada](docs/evidencias/password-hasheado-compass.png)
+### `GET /api/sessions/current`
 
-## Rutas disponibles
+Protegida por el middleware `auth`: lee la cookie `currentUser`, verifica el JWT y deja los datos del usuario en `req.user`.
 
-| Método | Ruta | Descripción | Estado |
-| --- | --- | --- | --- |
-| GET | `/api/health` | Verifica que el servidor esté activo | Disponible |
-| GET | `/api/events` | Lista de torneos y clínicas | Disponible |
-| POST | `/api/sessions/register` | Registro seguro de usuario | **Disponible** |
-| POST | `/api/sessions/login` | Inicio de sesión | Próxima entrega (responde 501) |
-| GET | `/api/sessions/current` | Usuario logueado | Próxima entrega (responde 501) |
-| POST | `/api/sessions/logout` | Cierre de sesión | Próxima entrega (responde 501) |
+Response `200` (con la cookie):
 
-### Otros ejemplos
+```json
+{ "status": "success", "payload": { "id": "665f2a...", "email": "ana@mail.com", "role": "user" } }
+```
+
+| Código | Mensaje | Cuándo |
+| --- | --- | --- |
+| `401` | `No autenticado` | No llega la cookie (sin login o después del logout) |
+| `401` | `Token inválido o expirado` | El token fue alterado, está mal formado, vencido o firmado con otra clave |
+
+### `POST /api/sessions/logout`
+
+Borra la cookie `currentUser`. Response `200`:
+
+```json
+{ "status": "success", "message": "Sesión cerrada" }
+```
+
+### Otras rutas
 
 `GET /api/health` → `200`
 
@@ -233,7 +237,7 @@ curl -X POST http://localhost:8080/api/sessions/register -H "Content-Type: appli
 { "status": "ok", "message": "Servidor activo" }
 ```
 
-`GET /api/events` → `200` (lista vacía al inicio)
+`GET /api/events` → `200`
 
 ```json
 { "status": "success", "payload": [] }
@@ -244,3 +248,40 @@ Ruta inexistente → `404`
 ```json
 { "status": "error", "message": "Ruta no encontrada" }
 ```
+
+## Cómo probar el flujo completo
+
+En **Postman** (guarda y envía la cookie automáticamente), con el servidor en marcha:
+
+1. **POST** `http://localhost:8080/api/sessions/register` con el body de ejemplo → `201`.
+2. **POST** `http://localhost:8080/api/sessions/login` con email y contraseña → `200`. En la pestaña **Cookies** de la respuesta aparece `currentUser` (HttpOnly).
+3. **GET** `http://localhost:8080/api/sessions/current` → `200` con `{ id, email, role }`.
+4. **POST** `http://localhost:8080/api/sessions/logout` → `200 Sesión cerrada`.
+5. **GET** `/api/sessions/current` otra vez → `401 No autenticado`.
+
+Para ver los errores del login: repetir el paso 2 con un email que no existe y después con una contraseña incorrecta. Las dos respuestas son iguales: `401 Credenciales inválidas`.
+
+## Tests automatizados
+
+```bash
+npm test
+```
+
+18 tests con `node:test` (incluido en Node, sin dependencias extra). No necesitan MongoDB: el servicio se prueba con un **repository falso en memoria**, aprovechando la inyección de dependencias.
+
+| Archivo | Qué prueba |
+| --- | --- |
+| `tests/sessions.service.test.js` | Registro exitoso, email normalizado, contraseña hasheada (no en texto plano), rol ignorado, duplicados (409), campos faltantes, inválidos o de solo espacios (400), respuesta sin contraseña, login correcto y el mismo 401 para email inexistente y contraseña incorrecta |
+| `tests/auth.test.js` | Helper de JWT (payload, expiración, token alterado) y middleware `auth` (token válido, sin cookie, token alterado, mal formado, vencido o de otra clave) |
+
+## Evidencias
+
+### Registro (Pre-entrega 2)
+
+**Registro exitoso en Postman:** el email llega como `"Ana@Mail.com "` y se guarda normalizado como `ana@mail.com`, con rol `user`. La respuesta no incluye la contraseña.
+
+![Registro exitoso en Postman con respuesta 201 sin password](docs/evidencias/registro-postman-201.png)
+
+**Usuario guardado en MongoDB Compass:** el mismo usuario (`_id` `6ac503bc13597b7ed91711a8`, igual al `id` de la respuesta) tiene la contraseña hasheada con bcrypt (`$2b$10$...`), nunca en texto plano.
+
+![Usuario en MongoDB Compass con la contraseña hasheada](docs/evidencias/password-hasheado-compass.png)
