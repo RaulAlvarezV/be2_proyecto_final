@@ -1,8 +1,9 @@
 import { eventsRepository } from "../repositories/events.repository.js";
+import { EVENT_STATUS } from "../config/event-status.js";
 import { AppError } from "../utils/errors.js";
 
 // Campos que se toman del body: organizer y status nunca los decide el cliente
-const EVENT_FIELDS = ["name", "description", "type", "date", "place", "capacity", "price", "category"];
+const EVENT_FIELDS = ["title", "description", "category", "date", "location", "capacity", "price"];
 
 function pickEventFields(data = {}) {
     return Object.fromEntries(
@@ -29,15 +30,14 @@ function validateFutureDate(value) {
 function toPublicEvent(event) {
     return {
         id: event._id,
-        name: event.name,
+        title: event.title,
         description: event.description,
-        type: event.type,
+        category: event.category,
         date: event.date,
-        place: event.place,
+        location: event.location,
         capacity: event.capacity,
         price: event.price,
         status: event.status,
-        category: event.category,
         organizer: event.organizer
     };
 }
@@ -47,9 +47,9 @@ export class EventsService {
         this.repository = repository;
     }
 
-    // Consulta pública: solo los eventos publicados (activos), no los cancelados
+    // Consulta pública: los borradores todavía no se muestran
     async getAll() {
-        const events = await this.repository.getAll({ status: "active" });
+        const events = await this.repository.getAll({ status: { $ne: EVENT_STATUS.DRAFT } });
         return events.map(toPublicEvent);
     }
 
@@ -60,12 +60,12 @@ export class EventsService {
             eventData.date = validateFutureDate(eventData.date);
         }
 
-        // El organizador es siempre el usuario logueado y todo evento nace activo.
+        // El organizador es siempre el usuario logueado y todo evento nace como borrador (se publica con un cambio de estado).
         // Los campos obligatorios, el tipo, el cupo y el precio los valida el schema de Mongoose
         const newEvent = await this.repository.create({
             ...eventData,
             organizer: organizerId,
-            status: "active"
+            status: EVENT_STATUS.DRAFT
         });
 
         return toPublicEvent(newEvent);
@@ -73,8 +73,12 @@ export class EventsService {
 
     // El permiso (dueño o admin) ya lo validó authorizeEventOwnerOrAdmin; acá van las reglas del evento
     async update(event, changes) {
-        if (event.status === "cancelled") {
+        if (event.status === EVENT_STATUS.CANCELLED) {
             throw new AppError("Un evento cancelado no puede modificarse", 409);
+        }
+
+        if (event.status === EVENT_STATUS.FINISHED) {
+            throw new AppError("Un evento finalizado no puede modificarse", 409);
         }
 
         const eventData = pickEventFields(changes);
@@ -91,11 +95,11 @@ export class EventsService {
     }
 
     async cancel(event) {
-        if (event.status === "cancelled") {
+        if (event.status === EVENT_STATUS.CANCELLED) {
             throw new AppError("El evento ya está cancelado", 409);
         }
 
-        const cancelledEvent = await this.repository.update(event._id, { status: "cancelled" });
+        const cancelledEvent = await this.repository.update(event._id, { status: EVENT_STATUS.CANCELLED });
         return toPublicEvent(cancelledEvent);
     }
 }

@@ -82,7 +82,7 @@ describe("authorizeRoles", () => {
 });
 
 describe("authorizeEventOwnerOrAdmin", () => {
-    const event = { _id: "ev1", name: "Torneo", organizer: "org1", status: "active" };
+    const event = { _id: "ev1", title: "Torneo", organizer: "org1", status: "published" };
     const repository = { async getById(id) { return id === "ev1" ? event : null; } };
     const ownership = createEventOwnershipMiddleware(repository);
 
@@ -129,43 +129,43 @@ describe("Reglas de eventos (EventsService)", () => {
         const events = [];
         return {
             events,
-            async getAll(filter) { return events.filter(e => !filter?.status || e.status === filter.status); },
+            async getAll(filter) { return events.filter(e => e.status !== filter?.status?.$ne); },
             async create(data) { const e = { _id: `ev${events.length + 1}`, ...data }; events.push(e); return e; },
             async update(id, data) { const e = events.find(ev => ev._id === id); Object.assign(e, data); return e; }
         };
     }
 
-    test("al crear, el organizer sale de la sesión y el evento nace activo", async () => {
+    test("al crear, el organizer sale de la sesión y el evento nace como borrador", async () => {
         const service = new EventsService(createFakeRepository());
-        const event = await service.create({ name: "Torneo", type: "torneo", date: futureDate(), organizer: "otro", status: "cancelled" }, "org1");
+        const event = await service.create({ title: "Torneo", date: futureDate(), organizer: "otro", status: "cancelled" }, "org1");
 
         assert.equal(event.organizer, "org1");
-        assert.equal(event.status, "active");
+        assert.equal(event.status, "draft");
     });
 
     test("no se puede crear un evento con fecha pasada", async () => {
         const service = new EventsService(createFakeRepository());
 
-        await assert.rejects(service.create({ name: "Torneo", date: "2020-01-01" }, "org1"), { status: 400 });
+        await assert.rejects(service.create({ title: "Torneo", date: "2020-01-01" }, "org1"), { status: 400 });
     });
 
     test("un evento cancelado no se modifica ni se vuelve a cancelar", async () => {
         const service = new EventsService(createFakeRepository());
         const cancelled = { _id: "ev1", status: "cancelled" };
 
-        await assert.rejects(service.update(cancelled, { name: "Otro" }), { status: 409 });
+        await assert.rejects(service.update(cancelled, { title: "Otro" }), { status: 409 });
         await assert.rejects(service.cancel(cancelled), { status: 409 });
     });
 
-    test("el listado público solo muestra eventos activos", async () => {
+    test("el listado público no muestra borradores", async () => {
         const repository = createFakeRepository();
         const service = new EventsService(repository);
-        await service.create({ name: "Activo", date: futureDate() }, "org1");
-        const toCancel = await service.create({ name: "Cancelado", date: futureDate() }, "org1");
-        await service.cancel({ _id: toCancel.id, status: "active" });
+        await service.create({ title: "Borrador", date: futureDate() }, "org1");
+        const toCancel = await service.create({ title: "Cancelado", date: futureDate() }, "org1");
+        await service.cancel({ _id: toCancel.id, status: "draft" });
 
         const events = await service.getAll();
-        assert.deepEqual(events.map(e => e.name), ["Activo"]);
+        assert.deepEqual(events.map(e => e.title), ["Cancelado"]);
     });
 });
 

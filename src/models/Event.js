@@ -1,28 +1,33 @@
 import { Schema, model, Types } from "mongoose";
+import { EVENT_STATUS, EVENT_STATUS_VALUES } from "../config/event-status.js";
 
+// Torneo o clínica de hockey. El modelo define la forma del dato; las reglas de negocio (fecha futura,
+// qué estados se pueden cambiar) están en services/events.service.js
 const eventSchema = new Schema(
     {
-        name: {
+        title: {
             type: String,
             required: true,
             trim: true
         },
         description: {
             type: String,
+            required: true,
             trim: true
         },
-        type: {
-            type: String,
-            enum: ["torneo", "clinica"],
+        category: {
+            type: Types.ObjectId,
+            ref: "Categories",
             required: true
         },
         date: {
             type: Date,
             required: true
         },
-        place: {
+        location: {
             type: String,
-            required: true
+            required: true,
+            trim: true
         },
         capacity: {
             type: Number,
@@ -36,16 +41,14 @@ const eventSchema = new Schema(
         },
         status: {
             type: String,
-            enum: ["active", "cancelled"],
-            default: "active"
+            enum: EVENT_STATUS_VALUES,
+            default: EVENT_STATUS.DRAFT
         },
-        category: {
-            type: Types.ObjectId,
-            ref: "Categories"
-        },
+        // Referencia al usuario que lo creó (no el objeto completo)
         organizer: {
             type: Types.ObjectId,
-            ref: "Users"
+            ref: "Users",
+            required: true
         }
     },
     {
