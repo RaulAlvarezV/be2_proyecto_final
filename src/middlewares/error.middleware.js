@@ -16,6 +16,11 @@ export function errorHandler(error, _req, res, _next) {
         return res.status(409).json({ status: "error", message: "El email ya está registrado" });
     }
 
+    // Mongoose rechazó los datos (campo obligatorio faltante, valor fuera de rango, id mal formado): es un 400, no un 500
+    if (error.name === "ValidationError" || error.name === "CastError") {
+        return res.status(400).json({ status: "error", message: "Datos inválidos" });
+    }
+
     const status = error.status || 500;
 
     if (status === 500) {

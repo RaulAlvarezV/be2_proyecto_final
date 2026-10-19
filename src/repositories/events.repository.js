@@ -8,6 +8,10 @@ class EventsRepository {
     async getAll() {
         return this.dao.find();
     }
+
+    async create(data) {
+        return this.dao.create(data);
+    }
 }
 
 export const eventsRepository = new EventsRepository(eventsDao);

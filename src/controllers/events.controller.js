@@ -8,3 +8,13 @@ export async function getEvents(req, res, next) {
         next(error);
     }
 }
+
+// Ya pasó por auth y authorizeRoles: req.user es organizer o admin
+export async function createEvent(req, res, next) {
+    try {
+        const newEvent = await eventsService.create(req.body, req.user.id);
+        res.status(201).json({ status: "success", payload: newEvent });
+    } catch (error) {
+        next(error);
+    }
+}
