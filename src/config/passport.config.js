@@ -3,6 +3,7 @@ import { Strategy as LocalStrategy } from "passport-local";
 import { Strategy as JwtStrategy } from "passport-jwt";
 import { env } from "./env.js";
 import { COOKIE_NAME } from "./cookie.js";
+import { ROLES } from "./permissions.js";
 import { usersRepository } from "../repositories/users.repository.js";
 import { createHash, isValidPassword } from "../utils/hash.js";
 
@@ -72,7 +73,7 @@ function registerStrategy(repository) {
                     last_name: lastName,
                     email: normalizedEmail,
                     password: await createHash(password),
-                    role: "user"
+                    role: ROLES.USER
                 });
 
                 return done(null, toPublicUser(newUser));
