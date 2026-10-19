@@ -19,7 +19,7 @@ class UsersDao {
     }
 
     async updateById(id, data) {
-        return userModel.findByIdAndUpdate(id, data, { new: true, runValidators: true }).lean();
+        return userModel.findByIdAndUpdate(id, data, { returnDocument: "after", runValidators: true }).lean();
     }
 }
 

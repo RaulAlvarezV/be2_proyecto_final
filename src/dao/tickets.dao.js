@@ -51,7 +51,7 @@ class TicketsDao {
     }
 
     async updateById(id, data) {
-        return ticketModel.findByIdAndUpdate(id, data, { new: true, runValidators: true }).lean();
+        return ticketModel.findByIdAndUpdate(id, data, { returnDocument: "after", runValidators: true }).lean();
     }
 }
 
