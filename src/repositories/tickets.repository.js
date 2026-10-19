@@ -6,6 +6,11 @@ class TicketsRepository {
         this.dao = dao;
     }
 
+    // Sin populate: lo usa el middleware de propiedad para comparar el user con el usuario logueado
+    async getById(id) {
+        return this.dao.findById(id);
+    }
+
     async getActiveByUserAndEvent(userId, eventId) {
         return this.dao.findOne({ user: userId, event: eventId, status: { $in: ACTIVE_TICKET_STATUS } });
     }
@@ -28,6 +33,10 @@ class TicketsRepository {
 
     async create(data) {
         return this.dao.create(data);
+    }
+
+    async update(id, data) {
+        return this.dao.updateById(id, data);
     }
 }
 

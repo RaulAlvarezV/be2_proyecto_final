@@ -19,6 +19,16 @@ export async function getEventTickets(req, res, next) {
     }
 }
 
+// req.ticket lo deja authorizeTicketOwnerOrAdmin
+export async function cancelTicket(req, res, next) {
+    try {
+        const ticket = await ticketsService.cancel(req.ticket);
+        res.status(200).json({ status: "success", message: "Inscripción cancelada", payload: ticket });
+    } catch (error) {
+        next(error);
+    }
+}
+
 // Ya pasó por auth: req.user es el usuario que se inscribe. Body opcional: { "quantity": 2 }
 export async function createTicket(req, res, next) {
     try {

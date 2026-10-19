@@ -27,6 +27,10 @@ class TicketsDao {
             .lean();
     }
 
+    async findById(id) {
+        return ticketModel.findById(id).lean();
+    }
+
     async create(data) {
         const ticket = await ticketModel.create(data);
         return ticket.toObject();
@@ -40,6 +44,10 @@ class TicketsDao {
         ]);
 
         return result?.total ?? 0;
+    }
+
+    async updateById(id, data) {
+        return ticketModel.findByIdAndUpdate(id, data, { new: true, runValidators: true }).lean();
     }
 }
 

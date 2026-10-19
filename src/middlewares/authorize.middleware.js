@@ -1,5 +1,6 @@
 import { ROLES } from "../config/permissions.js";
 import { eventsRepository } from "../repositories/events.repository.js";
+import { ticketsRepository } from "../repositories/tickets.repository.js";
 
 /**
  * Autorización por rol: recibe los roles permitidos y compara contra req.user.role.
@@ -64,3 +65,37 @@ export const authorizeEventTicketsAccess = createEventOwnershipMiddleware(events
     param: "eid",
     forbiddenMessage: "No tenés permisos para ver los inscriptos de este evento"
 });
+
+/**
+ * Autorización por propiedad del ticket: solo quien se inscribió o un admin pueden cancelarlo.
+ * Deja el ticket en req.ticket. Recibe el repository para poder probarlo sin MongoDB.
+ */
+export function createTicketOwnershipMiddleware(repository) {
+    return async function (req, res, next) {
+        try {
+            if (!req.user) {
+                return res.status(401).json({ status: "error", message: "No autenticado" });
+            }
+
+            const ticket = await repository.getById(req.params.tid);
+            if (!ticket) {
+                return res.status(404).json({ status: "error", message: "Ticket no encontrado" });
+            }
+
+            // Igual que con los eventos: el admin primero (permiso global), después el dueño
+            const isAdmin = req.user.role === ROLES.ADMIN;
+            const isOwner = String(ticket.user) === String(req.user.id);
+
+            if (!isAdmin && !isOwner) {
+                return res.status(403).json({ status: "error", message: "No tenés permisos para cancelar este ticket" });
+            }
+
+            req.ticket = ticket;
+            next();
+        } catch (error) {
+            next(error);
+        }
+    };
+}
+
+export const authorizeTicketOwnerOrAdmin = createTicketOwnershipMiddleware(ticketsRepository);

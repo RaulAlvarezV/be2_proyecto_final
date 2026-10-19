@@ -114,6 +114,26 @@ export class TicketsService {
 
         return toPublicTicket(ticket);
     }
+
+    // El permiso (dueño del ticket o admin) ya lo validó authorizeTicketOwnerOrAdmin.
+    // Cancelar cambia el estado y guarda la fecha: el ticket no se borra y el cupo se libera solo
+    async cancel(ticket) {
+        if (ticket.status === TICKET_STATUS.CANCELLED) {
+            throw new AppError("El ticket ya está cancelado", 409);
+        }
+
+        const event = await this.eventsRepository.getById(ticket.event);
+        if (event && currentStatus(event) === EVENT_STATUS.FINISHED) {
+            throw new AppError("No se puede cancelar una inscripción de un evento finalizado", 409);
+        }
+
+        const cancelledTicket = await this.repository.update(ticket._id, {
+            status: TICKET_STATUS.CANCELLED,
+            cancelledAt: new Date()
+        });
+
+        return toPublicTicket(cancelledTicket);
+    }
 }
 
 export const ticketsService = new TicketsService(ticketsRepository, eventsRepository);
