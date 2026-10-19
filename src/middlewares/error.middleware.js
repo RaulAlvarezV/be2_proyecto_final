@@ -1,5 +1,18 @@
 const DUPLICATE_KEY_CODE = 11000;
 
+// Mensaje según el índice que rechazó el alta
+function duplicateMessage(keyPattern = {}) {
+    if (keyPattern.email) {
+        return "El email ya está registrado";
+    }
+
+    if (keyPattern.event) {
+        return "Ya tenés una inscripción activa para este evento";
+    }
+
+    return "Ya existe un registro con ese valor";
+}
+
 export function notFound(_req, res, _next) {
     res.status(404).json({ status: "error", message: "Ruta no encontrada" });
 }
@@ -11,9 +24,9 @@ export function errorHandler(error, _req, res, _next) {
         return res.status(400).json({ status: "error", message: "El cuerpo de la petición no es un JSON válido" });
     }
 
-    // Índice unique de MongoDB: dos altas con el mismo valor al mismo tiempo (email de usuario o nombre de categoría)
+    // Índice unique de MongoDB: dos altas con el mismo valor al mismo tiempo (email, categoría o inscripción activa)
     if (error.code === DUPLICATE_KEY_CODE) {
-        const message = error.keyPattern?.email ? "El email ya está registrado" : "Ya existe un registro con ese valor";
+        const message = duplicateMessage(error.keyPattern);
         return res.status(409).json({ status: "error", message });
     }
 

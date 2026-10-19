@@ -132,8 +132,9 @@ function escapeRegex(text) {
     return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-// Un evento publicado cuya fecha ya pasó está finalizado, aunque la base todavía diga published
-function currentStatus(event) {
+// Un evento publicado cuya fecha ya pasó está finalizado, aunque la base todavía diga published.
+// Se exporta porque las inscripciones usan la misma regla
+export function currentStatus(event) {
     if (event.status === EVENT_STATUS.PUBLISHED && new Date(event.date) <= new Date()) {
         return EVENT_STATUS.FINISHED;
     }

@@ -1,0 +1,99 @@
+import { ticketsRepository } from "../repositories/tickets.repository.js";
+import { eventsRepository } from "../repositories/events.repository.js";
+import { EVENT_STATUS } from "../config/event-status.js";
+import { TICKET_STATUS } from "../config/ticket-status.js";
+import { currentStatus } from "./events.service.js";
+import { toPublicTicket } from "../dto/ticket.dto.js";
+import { generateReservationCode } from "../utils/reservation-code.js";
+import { AppError } from "../utils/errors.js";
+
+const DEFAULT_QUANTITY = 1;
+const DUPLICATE_KEY_CODE = 11000;
+const CODE_ATTEMPTS = 3;
+
+// quantity es opcional (por defecto 1 lugar); si llega, tiene que ser un entero mayor a cero
+function validateQuantity(value) {
+    if (value === undefined) {
+        return DEFAULT_QUANTITY;
+    }
+
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+        throw new AppError("La cantidad debe ser un número", 400);
+    }
+
+    if (!Number.isInteger(value) || value <= 0) {
+        throw new AppError("La cantidad debe ser un número entero mayor a cero", 400);
+    }
+
+    return value;
+}
+
+export class TicketsService {
+    constructor(repository, eventsRepository) {
+        this.repository = repository;
+        this.eventsRepository = eventsRepository;
+    }
+
+    // El ticket se crea con un código de reserva aleatorio. Si justo se repite (muy poco probable),
+    // el índice unique lo rechaza y se genera otro
+    async createWithCode(data) {
+        for (let attempt = 1; attempt <= CODE_ATTEMPTS; attempt++) {
+            try {
+                return await this.repository.create({ ...data, reservationCode: generateReservationCode() });
+            } catch (error) {
+                const isCodeCollision = error.code === DUPLICATE_KEY_CODE && error.keyPattern?.reservationCode;
+                if (!isCodeCollision || attempt === CODE_ATTEMPTS) {
+                    throw error;
+                }
+            }
+        }
+    }
+
+    // Inscripción: el usuario sale de la sesión (req.user), nunca del body
+    async create(eventId, quantityInput, user) {
+        const quantity = validateQuantity(quantityInput);
+
+        const event = await this.eventsRepository.getById(eventId);
+
+        // Un borrador todavía no es público: se responde igual que si no existiera
+        if (!event || event.status === EVENT_STATUS.DRAFT) {
+            throw new AppError("Evento no encontrado", 404);
+        }
+
+        const status = currentStatus(event);
+
+        if (status === EVENT_STATUS.CANCELLED) {
+            throw new AppError("El evento está cancelado: no admite inscripciones", 409);
+        }
+
+        if (status === EVENT_STATUS.FINISHED) {
+            throw new AppError("El evento ya finalizó: no admite inscripciones", 409);
+        }
+
+        // Una inscripción activa por usuario y evento (para más lugares se usa quantity)
+        const existing = await this.repository.getActiveByUserAndEvent(user.id, event._id);
+        if (existing) {
+            throw new AppError("Ya tenés una inscripción activa para este evento", 409);
+        }
+
+        // Solo cuentan los tickets activos: los cancelados no ocupan cupo
+        const reserved = await this.repository.getReservedSeats(event._id);
+        const available = event.capacity - reserved;
+
+        if (quantity > available) {
+            const detail = available > 0 ? `quedan ${available} lugares disponibles` : "el evento no tiene lugares disponibles";
+            throw new AppError(`No hay cupos suficientes: ${detail}`, 409);
+        }
+
+        const ticket = await this.createWithCode({
+            user: user.id,
+            event: event._id,
+            quantity,
+            status: TICKET_STATUS.CONFIRMED
+        });
+
+        return toPublicTicket(ticket);
+    }
+}
+
+export const ticketsService = new TicketsService(ticketsRepository, eventsRepository);
