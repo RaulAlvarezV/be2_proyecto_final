@@ -750,6 +750,66 @@ npm test
 
 ## Evidencias
 
+### Tickets, inscripciones y control de cupos (Pre-entrega 7)
+
+Usuarios de prueba: **Lucía** y **Sofía** (`user`), **Raul** (`organizer`) y **Ana** (`admin`). Para los casos de cupo se usó la **Clínica de stick handling** de Raul, con `capacity: 2`. El email se probó con una casilla de [Ethereal](https://ethereal.email).
+
+**1. Inscripción exitosa → 201:** Lucía se inscribe al Torneo Clausura Primera; el ticket nace `confirmed`, con su código de reserva y `emailSent: true`.
+
+![POST /api/events/:eid/tickets respondiendo 201](docs/evidencias/p7-inscripcion-201.png)
+
+**2. Email de confirmación recibido:** llega a la casilla de prueba con el evento, la fecha, el lugar y el mismo código de reserva.
+
+![Email de confirmación de inscripción en Ethereal](docs/evidencias/p7-email-recibido.png)
+
+**3. Inscripción duplicada → 409:** Lucía ya tiene un ticket activo para ese evento.
+
+![Inscripción duplicada respondiendo 409](docs/evidencias/p7-duplicado-409.png)
+
+**4. Inscripción sin sesión → 401.**
+
+![Inscripción sin sesión respondiendo 401](docs/evidencias/p7-sin-sesion-401.png)
+
+**5. Evento inexistente → 404.**
+
+![Inscripción a un evento inexistente respondiendo 404](docs/evidencias/p7-evento-inexistente-404.png)
+
+**6. Evento cancelado → 409:** la Clínica de juego aéreo está cancelada y no admite inscripciones.
+
+![Inscripción a un evento cancelado respondiendo 409](docs/evidencias/p7-evento-cancelado-409.png)
+
+**7. Sin cupo suficiente → 409:** Sofía ocupó los 2 lugares de la clínica; la respuesta lo explica.
+
+![Inscripción sin cupo respondiendo 409](docs/evidencias/p7-sin-cupo-409.png)
+
+**8. Cancelar el ticket de otro usuario → 403:** Lucía intenta cancelar el ticket de Sofía.
+
+![Cancelación de un ticket ajeno respondiendo 403](docs/evidencias/p7-cancelar-ajeno-403.png)
+
+**9. Cancelación propia → 200:** Sofía cancela su ticket; queda `cancelled` con `cancelledAt` y no se borra.
+
+![Cancelación propia respondiendo 200](docs/evidencias/p7-cancelacion-propia-200.png)
+
+**10. Cupo liberado → 201:** con el ticket de Sofía cancelado, Lucía ahora sí puede reservar los 2 lugares.
+
+![Nueva inscripción con el cupo liberado respondiendo 201](docs/evidencias/p7-cupo-liberado-201.png)
+
+**11. Mis tickets → 200:** solo los tickets de Lucía, con `title`, `date` y `location` del evento.
+
+![GET /api/tickets/my-tickets respondiendo 200](docs/evidencias/p7-mis-tickets-200.png)
+
+**12. Inscriptos de un evento como `user` → 403.**
+
+![GET /api/events/:eid/tickets como user respondiendo 403](docs/evidencias/p7-inscriptos-user-403.png)
+
+**13. Inscriptos como `organizer` de otro evento → 403:** Raul intenta ver los inscriptos del torneo de Ana.
+
+![GET /api/events/:eid/tickets como organizer ajeno respondiendo 403](docs/evidencias/p7-inscriptos-organizer-ajeno-403.png)
+
+**14. Inscriptos como `organizer` dueño → 200:** Raul ve el resumen de cupo de su clínica (2 reservados de 2; el ticket cancelado de Sofía no cuenta) y los inscriptos.
+
+![GET /api/events/:eid/tickets como organizer dueño respondiendo 200](docs/evidencias/p7-inscriptos-duenio-200.png)
+
 ### Eventos y lógica de negocio (Pre-entrega 6)
 
 Usuarios de prueba: **Lucía** (`user`), **Raul** (`organizer`) y **Ana** (`admin`). Categorías cargadas: `torneo`, `clinica` y `workshop`.
