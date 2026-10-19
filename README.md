@@ -2,7 +2,7 @@
 
 Proyecto final de Backend II (Coderhouse). API REST para gestionar torneos y clínicas de hockey sobre césped: usuarios, eventos, categorías e inscripciones.
 
-Esta versión corresponde a la **Pre-entrega 4**: la autenticación (registro, login y usuario actual) pasa a estar **centralizada en estrategias de Passport.js**. Las rutas y sus respuestas son **las mismas que en la Pre-entrega 3** (JWT en la cookie HTTP Only `currentUser`); lo que cambia es la organización interna.
+Esta versión corresponde a la **Pre-entrega 5**: suma **roles y autorización**. Cada acción se valida según el rol del usuario (`user`, `organizer`, `admin`) y, cuando corresponde, según quién es el dueño del recurso, diferenciando **401** (sin sesión) de **403** (sin permiso). La autenticación sigue centralizada en estrategias de Passport.js con JWT en la cookie HTTP Only `currentUser`, igual que en la Pre-entrega 4.
 
 ## Temática
 
@@ -37,7 +37,70 @@ Todo usuario nuevo se registra con rol `user`. El rol nunca se toma del body del
 - node:test (tests automatizados, incluido en Node)
 - Módulos ESM (`import` / `export`)
 
-Próximas entregas: roles y autorización, Nodemailer.
+Próximas entregas: inscripciones, Nodemailer.
+
+## Roles y autorización
+
+### Roles
+
+| Rol | En la plataforma | Cómo se obtiene |
+| --- | --- | --- |
+| `user` | Jugador o jugadora | Por defecto en todo registro. El registro público **nunca** acepta `role` del body |
+| `organizer` | Club, entrenador o academia | Lo asigna un `admin` con `PATCH /api/users/:uid/role` |
+| `admin` | Administración de la plataforma | El primero se asigna a mano en la base (ver abajo); después, otro admin con la misma ruta |
+
+Los roles y la matriz están definidos en **`src/config/permissions.js`** (congelados con `Object.freeze`), y el modelo `User` toma de ahí el `enum` y el valor por defecto.
+
+### Matriz de permisos
+
+| Acción | Ruta | user | organizer | admin |
+| --- | --- | --- | --- | --- |
+| Consultar eventos publicados | `GET /api/events` | ✅ | ✅ | ✅ (pública, sin login) |
+| Ver su propia sesión | `GET /api/sessions/current` | ✅ | ✅ | ✅ |
+| Crear eventos | `POST /api/events` | ❌ 403 | ✅ | ✅ |
+| Modificar / cancelar eventos propios | `PUT /api/events/:eid` · `PATCH /api/events/:eid/cancel` | ❌ 403 | ✅ | ✅ |
+| Modificar / cancelar cualquier evento | (las mismas rutas) | ❌ 403 | ❌ 403 | ✅ |
+| Ver todos los usuarios | `GET /api/users` | ❌ 403 | ❌ 403 | ✅ |
+| Cambiar el rol de un usuario | `PATCH /api/users/:uid/role` | ❌ 403 | ❌ 403 | ✅ |
+
+### 401 vs 403
+
+| Código | Significa | Cuándo | Respuesta |
+| --- | --- | --- | --- |
+| **401** Unauthorized | **No está autenticado**: la API no sabe quién es | Sin cookie, token vencido, alterado o inválido | `{ "status": "error", "message": "No autenticado" }` (o `"Token inválido o expirado"`) |
+| **403** Forbidden | **Está autenticado pero no tiene permiso**: la API sabe quién es y bloquea la acción | Un `user` crea un evento, un `organizer` entra a una ruta de admin o modifica un evento ajeno | `{ "status": "error", "message": "No tenés permisos para realizar esta acción" }` |
+
+Ejemplo con `POST /api/events`: sin login → **401**; logueado como `user` → **403**; como `organizer` o `admin` → **201**.
+
+### Middlewares
+
+| Middleware | Archivo | Qué hace |
+| --- | --- | --- |
+| `auth` | `middlewares/auth.middleware.js` | Autenticación: estrategia `current` de Passport. Lee el JWT de la cookie, valida y carga `req.user`. **401** si no hay sesión válida |
+| `authorizeRoles(...roles)` | `middlewares/authorize.middleware.js` | Autorización por rol: recibe los roles permitidos y compara contra `req.user.role`. **403** si no coincide (y 401 si no hay `req.user`) |
+| `authorizeEventOwnerOrAdmin` | `middlewares/authorize.middleware.js` | Autorización por propiedad: deja pasar al organizer **dueño** del evento o al `admin`. **403** para un organizer ajeno, **404** si el evento no existe. Deja el evento en `req.event` |
+
+Las rutas aplican los middlewares en orden, usando la matriz (ningún rol queda escrito suelto en las rutas):
+
+```javascript
+router.post("/", auth, authorizeRoles(...PERMISSIONS.CREATE_EVENT), createEvent);
+router.put("/:eid", auth, authorizeRoles(...PERMISSIONS.MANAGE_EVENT), authorizeEventOwnerOrAdmin, updateEvent);
+router.use(auth, authorizeRoles(...PERMISSIONS.MANAGE_USERS)); // todas las rutas de /api/users
+```
+
+**autenticación (401) → rol (403) → propiedad (403) → controller**
+
+El rol se lee de la base en cada petición (la estrategia `current` busca al usuario por el id del token), así que si un admin cambia el rol de alguien, el cambio aplica en su próxima petición, sin volver a loguearse.
+
+### Crear el primer admin
+
+El registro público siempre crea usuarios `user`. Para el **primer** admin (una sola vez):
+
+1. Registrarse con `POST /api/sessions/register`.
+2. En MongoDB Compass → base `be2_proyecto_final` → colección `users` → editar el documento y cambiar `"role": "user"` por `"role": "admin"`.
+3. Volver a hacer login.
+
+Desde ahí, ese admin convierte a otros usuarios en `organizer` (o `admin`) con `PATCH /api/users/:uid/role`, sin tocar la base. Un admin no puede cambiar su propio rol, para que la plataforma nunca se quede sin administradores.
 
 ## Autenticación con Passport
 
@@ -117,17 +180,23 @@ src/
 │   ├── env.js                   # variables de entorno con dotenv
 │   ├── db.js                    # conexión a MongoDB
 │   ├── cookie.js                # nombre y opciones de la cookie currentUser
+│   ├── permissions.js           # roles y matriz de permisos
 │   └── passport.config.js       # estrategias register, login y current (initializePassport)
 ├── routes/
 │   ├── health.router.js
-│   ├── events.router.js
-│   └── sessions.router.js       # las rutas delegan en las estrategias de Passport
+│   ├── events.router.js         # públicas, crear (rol) y modificar/cancelar (rol + propiedad)
+│   ├── sessions.router.js       # las rutas delegan en las estrategias de Passport
+│   └── users.router.js          # rutas administrativas (solo admin)
 ├── controllers/
 │   ├── health.controller.js
 │   ├── events.controller.js
-│   └── sessions.controller.js   # responde, genera el token y maneja la cookie
+│   ├── sessions.controller.js   # responde, genera el token y maneja la cookie
+│   └── users.controller.js
 ├── services/
-│   └── events.service.js
+│   ├── events.service.js        # reglas de eventos: fecha futura, campos permitidos, cancelados
+│   └── users.service.js         # listado sin contraseñas y cambio de rol
+├── dto/
+│   └── user.dto.js              # datos públicos del usuario (sin contraseña)
 ├── repositories/
 │   ├── events.repository.js
 │   └── users.repository.js
@@ -140,12 +209,15 @@ src/
 │   ├── Category.js
 │   └── Registration.js
 ├── middlewares/
-│   ├── auth.middleware.js       # passportCall y auth (estrategia current) para las rutas protegidas
+│   ├── auth.middleware.js       # autenticación: passportCall y auth (estrategia current) → 401
+│   ├── authorize.middleware.js  # autorización: authorizeRoles → 403 y authorizeEventOwnerOrAdmin
 │   └── error.middleware.js      # rutas no encontradas y manejo global de errores
 └── utils/
     ├── jwt.js                   # generateToken y verifyToken
-    └── hash.js                  # createHash e isValidPassword (bcrypt)
+    ├── hash.js                  # createHash e isValidPassword (bcrypt)
+    └── errors.js                # error con código de estado (AppError)
 tests/
+├── authorization.test.js        # matriz, authorizeRoles, propiedad de eventos y administración de usuarios
 ├── passport.strategies.test.js  # estrategias register, login y current con un repository falso (sin MongoDB)
 └── jwt.test.js                  # helper de JWT
 ```
@@ -169,11 +241,65 @@ GET /api/sessions/current
 | Método | Ruta | Descripción | Acceso |
 | --- | --- | --- | --- |
 | GET | `/api/health` | Verifica que el servidor esté activo | Público |
-| GET | `/api/events` | Lista de torneos y clínicas | Público |
+| GET | `/api/events` | Torneos y clínicas publicados (activos) | Público |
+| POST | `/api/events` | Crear un torneo o clínica | `organizer`, `admin` |
+| PUT | `/api/events/:eid` | Modificar un evento | `organizer` dueño, `admin` |
+| PATCH | `/api/events/:eid/cancel` | Cancelar un evento | `organizer` dueño, `admin` |
+| GET | `/api/users` | Listar todos los usuarios (sin contraseñas) | `admin` |
+| PATCH | `/api/users/:uid/role` | Cambiar el rol de un usuario | `admin` |
 | POST | `/api/sessions/register` | Registro seguro de usuario | Público |
 | POST | `/api/sessions/login` | Inicio de sesión: genera el JWT y lo guarda en la cookie `currentUser` | Público |
 | GET | `/api/sessions/current` | Datos del usuario autenticado | **Requiere cookie** |
 | POST | `/api/sessions/logout` | Cierra la sesión borrando la cookie | Público |
+
+### `POST /api/events`
+
+Requiere sesión y rol `organizer` o `admin`. El organizador del evento es siempre el usuario logueado y todo evento nace `active` (se ignoran `organizer` y `status` del body).
+
+Request:
+
+```json
+{ "name": "Torneo Apertura Sub 16", "type": "torneo", "date": "2026-11-15T15:00:00.000Z", "place": "Club Atlético", "capacity": 12, "price": 15000 }
+```
+
+Response `201`:
+
+```json
+{ "status": "success", "payload": { "id": "6690...", "name": "Torneo Apertura Sub 16", "type": "torneo", "date": "2026-11-15T15:00:00.000Z", "place": "Club Atlético", "capacity": 12, "price": 15000, "status": "active", "organizer": "665f2a..." } }
+```
+
+| Código | Cuándo |
+| --- | --- |
+| `401` | Sin sesión |
+| `403` | Rol `user` |
+| `400` | Fecha pasada o inválida, faltan campos, `type` distinto de `torneo`/`clinica`, cupo menor a 1 o precio negativo |
+
+### `PUT /api/events/:eid` y `PATCH /api/events/:eid/cancel`
+
+Requieren sesión, rol `organizer` o `admin` y ser el **dueño** del evento (el admin puede cualquiera). `PUT` modifica solo `name`, `description`, `type`, `date`, `place`, `capacity`, `price` y `category`.
+
+| Código | Cuándo |
+| --- | --- |
+| `200` | Modificado / cancelado |
+| `401` | Sin sesión |
+| `403` | Rol `user`, o `organizer` que no es el dueño del evento: `"No tenés permisos para modificar este evento"` |
+| `404` | El evento no existe |
+| `409` | El evento ya está cancelado (no se modifica ni se vuelve a cancelar) |
+| `400` | Sin campos válidos, fecha pasada o datos inválidos |
+
+### `GET /api/users` y `PATCH /api/users/:uid/role` (solo admin)
+
+`GET /api/users` → `200` con la lista de usuarios (`id`, `first_name`, `last_name`, `email`, `role`), sin contraseñas.
+
+`PATCH /api/users/:uid/role` con body `{ "role": "organizer" }` → `200` con el usuario actualizado.
+
+| Código | Cuándo |
+| --- | --- |
+| `401` | Sin sesión |
+| `403` | Rol `user` u `organizer` |
+| `400` | Rol inválido (valores posibles: `user`, `organizer`, `admin`) |
+| `404` | El usuario no existe |
+| `409` | Un admin intenta cambiar su propio rol |
 
 ### `POST /api/sessions/register`
 
@@ -267,10 +393,10 @@ Borra la cookie `currentUser`. Response `200`:
 { "status": "ok", "message": "Servidor activo" }
 ```
 
-`GET /api/events` → `200`
+`GET /api/events` → `200` (solo eventos activos)
 
 ```json
-{ "status": "success", "payload": [] }
+{ "status": "success", "payload": [ { "id": "6690...", "name": "Torneo Apertura Sub 16", "status": "active", "...": "..." } ] }
 ```
 
 Ruta inexistente → `404`
@@ -291,16 +417,28 @@ En **Postman** (guarda y envía la cookie automáticamente), con el servidor en 
 
 Para ver los errores del login: repetir el paso 2 con un email que no existe y después con una contraseña incorrecta. Las dos respuestas son iguales: `401 Credenciales inválidas`.
 
+### Probar roles y autorización
+
+Con un usuario de cada rol (el primer admin se crea como se explica en "Crear el primer admin"; los organizer los asigna el admin):
+
+1. Login como `user` → **POST** `/api/events` → `403`.
+2. Login como `admin` → **PATCH** `/api/users/<id del user>/role` con `{ "role": "organizer" }` → `200`.
+3. Login como ese `organizer` → **POST** `/api/events` → `201`.
+4. Como `organizer` → **GET** `/api/users` → `403`. Como `admin` → `200`.
+5. Con otro `organizer` → **PUT** `/api/events/<id del evento del primero>` → `403`.
+6. Sin cookie (después del logout) → cualquier ruta privada → `401`.
+
 ## Tests automatizados
 
 ```bash
 npm test
 ```
 
-18 tests con `node:test` (incluido en Node, sin dependencias extra). No necesitan MongoDB: las estrategias se registran con un **repository falso en memoria** (`initializePassport(repositoryFalso)`), aprovechando la inyección de dependencias, y se ejecutan a través de `passportCall`, igual que en la app.
+37 tests con `node:test` (incluido en Node, sin dependencias extra). No necesitan MongoDB: las estrategias, los middlewares y los services reciben **repositorios falsos en memoria**, aprovechando la inyección de dependencias.
 
 | Archivo | Qué prueba |
 | --- | --- |
+| `tests/authorization.test.js` | **Matriz** (y que no se pueda modificar en tiempo de ejecución). **authorizeRoles:** 401 sin sesión, 403 sin permiso, rutas admin solo para admin, fail closed sin roles. **Propiedad:** dueño, organizer ajeno 403, admin, 404, 401 y errores de la base. **Eventos:** organizer de la sesión, fecha futura, cancelado no se modifica, listado de activos. **Usuarios:** sin contraseñas, rol inválido 400, propio rol 409, inexistente 404 |
 | `tests/passport.strategies.test.js` | **register:** éxito sin contraseña en la respuesta, hash bcrypt, rol ignorado, duplicado (409), campos faltantes, inválidos o de solo espacios (400). **login:** éxito con `{ id, email, role }` y el mismo 401 para email inexistente y contraseña incorrecta. **current:** token válido, sin cookie, alterado, mal formado, vencido, de otra clave, sin firma (`alg: none`) y usuario inexistente |
 | `tests/jwt.test.js` | Helper de JWT: payload, expiración y token alterado |
 
