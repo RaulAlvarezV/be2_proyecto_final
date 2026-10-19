@@ -25,8 +25,9 @@ export function authorizeRoles(...allowedRoles) {
  * Autorización por propiedad del recurso: solo el organizador dueño del evento o un admin pueden modificarlo.
  * Va después de authorizeRoles (el rol ya es organizer o admin). Recibe el repository para poder probarlo sin MongoDB.
  * Deja el evento en req.event para que el controller no lo vuelva a buscar.
+ * param indica de qué parámetro de la ruta sale el id (/:id o /:eid/tickets) y forbiddenMessage el texto del 403.
  */
-export function createEventOwnershipMiddleware(repository) {
+export function createEventOwnershipMiddleware(repository, { param = "id", forbiddenMessage = "No tenés permisos para modificar este evento" } = {}) {
     return async function (req, res, next) {
         try {
             if (!req.user) {
@@ -34,7 +35,7 @@ export function createEventOwnershipMiddleware(repository) {
             }
 
             // Un id mal formado lanza CastError, que el manejador global responde con 400
-            const event = await repository.getById(req.params.id);
+            const event = await repository.getById(req.params[param]);
             if (!event) {
                 return res.status(404).json({ status: "error", message: "Evento no encontrado" });
             }
@@ -45,7 +46,7 @@ export function createEventOwnershipMiddleware(repository) {
             const isOwner = event.organizer != null && String(event.organizer) === String(req.user.id);
 
             if (!isAdmin && !isOwner) {
-                return res.status(403).json({ status: "error", message: "No tenés permisos para modificar este evento" });
+                return res.status(403).json({ status: "error", message: forbiddenMessage });
             }
 
             req.event = event;
@@ -57,3 +58,9 @@ export function createEventOwnershipMiddleware(repository) {
 }
 
 export const authorizeEventOwnerOrAdmin = createEventOwnershipMiddleware(eventsRepository);
+
+// Ver los inscriptos de un evento: misma regla de propiedad, sobre /api/events/:eid/tickets
+export const authorizeEventTicketsAccess = createEventOwnershipMiddleware(eventsRepository, {
+    param: "eid",
+    forbiddenMessage: "No tenés permisos para ver los inscriptos de este evento"
+});

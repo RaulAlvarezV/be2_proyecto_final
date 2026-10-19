@@ -1,8 +1,8 @@
 import { Router } from "express";
 import { getEvents, getEventById, createEvent, updateEvent, changeEventStatus } from "../controllers/events.controller.js";
 import { auth } from "../middlewares/auth.middleware.js";
-import { authorizeRoles, authorizeEventOwnerOrAdmin } from "../middlewares/authorize.middleware.js";
-import { createTicket } from "../controllers/tickets.controller.js";
+import { authorizeRoles, authorizeEventOwnerOrAdmin, authorizeEventTicketsAccess } from "../middlewares/authorize.middleware.js";
+import { createTicket, getEventTickets } from "../controllers/tickets.controller.js";
 import { PERMISSIONS } from "../config/permissions.js";
 
 const router = Router();
@@ -20,5 +20,8 @@ router.patch("/:id/status", auth, authorizeRoles(...PERMISSIONS.MANAGE_EVENT), a
 
 // Inscripción: cualquier usuario autenticado (las reglas de estado, duplicados y cupo están en el service)
 router.post("/:eid/tickets", auth, createTicket);
+
+// Inscriptos de un evento: rol organizer o admin (403 para user) y, si es organizer, dueño del evento (403 si no)
+router.get("/:eid/tickets", auth, authorizeRoles(...PERMISSIONS.VIEW_EVENT_TICKETS), authorizeEventTicketsAccess, getEventTickets);
 
 export default router;

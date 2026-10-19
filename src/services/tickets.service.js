@@ -55,6 +55,20 @@ export class TicketsService {
         return tickets.map(toPublicTicket);
     }
 
+    // El permiso (organizer dueño o admin) ya lo validó authorizeEventTicketsAccess, que deja el evento en req.event.
+    // Además de la lista se devuelve el resumen de cupo del evento
+    async getByEvent(event) {
+        const [tickets, reserved] = await Promise.all([
+            this.repository.getByEvent(event._id),
+            this.repository.getReservedSeats(event._id)
+        ]);
+
+        return {
+            summary: { capacity: event.capacity, reserved, available: event.capacity - reserved },
+            tickets: tickets.map(toPublicTicket)
+        };
+    }
+
     // Inscripción: el usuario sale de la sesión (req.user), nunca del body
     async create(eventId, quantityInput, user) {
         const quantity = validateQuantity(quantityInput);

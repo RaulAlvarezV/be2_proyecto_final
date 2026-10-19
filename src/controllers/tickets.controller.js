@@ -9,6 +9,16 @@ export async function getMyTickets(req, res, next) {
     }
 }
 
+// req.event lo deja authorizeEventTicketsAccess
+export async function getEventTickets(req, res, next) {
+    try {
+        const result = await ticketsService.getByEvent(req.event);
+        res.status(200).json({ status: "success", payload: result });
+    } catch (error) {
+        next(error);
+    }
+}
+
 // Ya pasó por auth: req.user es el usuario que se inscribe. Body opcional: { "quantity": 2 }
 export async function createTicket(req, res, next) {
     try {

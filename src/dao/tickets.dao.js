@@ -3,6 +3,8 @@ import { ticketModel } from "../models/Ticket.js";
 
 // Datos del evento que se muestran junto a cada ticket
 const EVENT_FIELDS = "title date location status";
+// Datos del inscripto que ve el organizador del evento (nunca la contraseña)
+const USER_FIELDS = "first_name last_name email";
 
 class TicketsDao {
     async findOne(filter) {
@@ -14,6 +16,14 @@ class TicketsDao {
             .find({ user: userId })
             .populate("event", EVENT_FIELDS)
             .sort({ createdAt: -1 })
+            .lean();
+    }
+
+    async findByEvent(eventId) {
+        return ticketModel
+            .find({ event: eventId })
+            .populate("user", USER_FIELDS)
+            .sort({ createdAt: 1 })
             .lean();
     }
 

@@ -14,6 +14,8 @@ export const PERMISSIONS = Object.freeze({
     CREATE_EVENT: Object.freeze([ROLES.ORGANIZER, ROLES.ADMIN]),
     // modificar o cancelar eventos: el organizer solo los propios (lo controla authorizeEventOwnerOrAdmin), el admin cualquiera
     MANAGE_EVENT: Object.freeze([ROLES.ORGANIZER, ROLES.ADMIN]),
+    // ver los inscriptos de un evento: el organizer solo de los propios (lo controla authorizeEventTicketsAccess), el admin de cualquiera
+    VIEW_EVENT_TICKETS: Object.freeze([ROLES.ORGANIZER, ROLES.ADMIN]),
     // ver todos los usuarios y cambiar roles
     MANAGE_USERS: Object.freeze([ROLES.ADMIN]),
     // crear categorías de eventos

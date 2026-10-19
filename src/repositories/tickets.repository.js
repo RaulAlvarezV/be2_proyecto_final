@@ -21,6 +21,11 @@ class TicketsRepository {
         return this.dao.findByUser(userId);
     }
 
+    // Inscriptos de un evento con sus datos de contacto
+    async getByEvent(eventId) {
+        return this.dao.findByEvent(eventId);
+    }
+
     async create(data) {
         return this.dao.create(data);
     }
