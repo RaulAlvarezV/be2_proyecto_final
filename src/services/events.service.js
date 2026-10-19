@@ -47,8 +47,9 @@ export class EventsService {
         this.repository = repository;
     }
 
+    // Consulta pública: solo los eventos publicados (activos), no los cancelados
     async getAll() {
-        const events = await this.repository.getAll();
+        const events = await this.repository.getAll({ status: "active" });
         return events.map(toPublicEvent);
     }
 
@@ -68,6 +69,34 @@ export class EventsService {
         });
 
         return toPublicEvent(newEvent);
+    }
+
+    // El permiso (dueño o admin) ya lo validó authorizeEventOwnerOrAdmin; acá van las reglas del evento
+    async update(event, changes) {
+        if (event.status === "cancelled") {
+            throw new AppError("Un evento cancelado no puede modificarse", 409);
+        }
+
+        const eventData = pickEventFields(changes);
+        if (Object.keys(eventData).length === 0) {
+            throw new AppError("No hay campos válidos para actualizar", 400);
+        }
+
+        if (eventData.date !== undefined) {
+            eventData.date = validateFutureDate(eventData.date);
+        }
+
+        const updatedEvent = await this.repository.update(event._id, eventData);
+        return toPublicEvent(updatedEvent);
+    }
+
+    async cancel(event) {
+        if (event.status === "cancelled") {
+            throw new AppError("El evento ya está cancelado", 409);
+        }
+
+        const cancelledEvent = await this.repository.update(event._id, { status: "cancelled" });
+        return toPublicEvent(cancelledEvent);
     }
 }
 

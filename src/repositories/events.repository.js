@@ -5,12 +5,20 @@ class EventsRepository {
         this.dao = dao;
     }
 
-    async getAll() {
-        return this.dao.find();
+    async getAll(filter = {}) {
+        return this.dao.find(filter);
+    }
+
+    async getById(id) {
+        return this.dao.findById(id);
     }
 
     async create(data) {
         return this.dao.create(data);
+    }
+
+    async update(id, data) {
+        return this.dao.updateById(id, data);
     }
 }
 
