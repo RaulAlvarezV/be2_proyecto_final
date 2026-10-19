@@ -5,8 +5,14 @@ class EventsRepository {
         this.dao = dao;
     }
 
-    async getAll(filter = {}) {
-        return this.dao.find(filter);
+    // Una página de resultados y el total que cumple el filtro (para calcular totalPages)
+    async getPage(filter, options) {
+        const [docs, total] = await Promise.all([
+            this.dao.findPage(filter, options),
+            this.dao.count(filter)
+        ]);
+
+        return { docs, total };
     }
 
     async getById(id) {
@@ -19,6 +25,10 @@ class EventsRepository {
 
     async update(id, data) {
         return this.dao.updateById(id, data);
+    }
+
+    async updateMany(filter, data) {
+        return this.dao.updateMany(filter, data);
     }
 }
 

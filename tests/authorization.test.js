@@ -131,7 +131,11 @@ describe("Reglas de eventos (EventsService)", () => {
         const events = [];
         return {
             events,
-            async getAll(filter) { return events.filter(e => e.status !== filter?.status?.$ne); },
+            async getPage(filter) {
+                const docs = events.filter(e => e.status !== filter.status?.$ne);
+                return { docs, total: docs.length };
+            },
+            async updateMany() { return { modifiedCount: 0 }; },
             async create(data) { const e = { _id: `ev${events.length + 1}`, ...data }; events.push(e); return e; },
             async update(id, data) { const e = events.find(ev => ev._id === id); Object.assign(e, data); return e; }
         };
@@ -166,7 +170,7 @@ describe("Reglas de eventos (EventsService)", () => {
         const toCancel = await service.create(validEvent({ title: "Cancelado" }), "org1");
         await service.cancel({ _id: toCancel.id, status: "draft" });
 
-        const events = await service.getAll();
+        const { data: events } = await service.getAll();
         assert.deepEqual(events.map(e => e.title), ["Cancelado"]);
     });
 });

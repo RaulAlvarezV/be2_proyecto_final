@@ -1,8 +1,23 @@
 import { eventModel } from "../models/Event.js";
 
+// Datos de las referencias que se muestran en los listados: del organizador solo el nombre (las rutas son públicas)
+const CATEGORY_FIELDS = "name";
+const ORGANIZER_FIELDS = "first_name last_name";
+
 class EventsDao {
-    async find(filter = {}) {
-        return eventModel.find(filter).lean();
+    async findPage(filter, { skip, limit, sort }) {
+        return eventModel
+            .find(filter)
+            .populate("category", CATEGORY_FIELDS)
+            .populate("organizer", ORGANIZER_FIELDS)
+            .sort(sort)
+            .skip(skip)
+            .limit(limit)
+            .lean();
+    }
+
+    async count(filter) {
+        return eventModel.countDocuments(filter);
     }
 
     async findById(id) {
@@ -16,6 +31,10 @@ class EventsDao {
 
     async updateById(id, data) {
         return eventModel.findByIdAndUpdate(id, data, { new: true, runValidators: true }).lean();
+    }
+
+    async updateMany(filter, data) {
+        return eventModel.updateMany(filter, data);
     }
 }
 

@@ -1,9 +1,10 @@
 import { eventsService } from "../services/events.service.js";
 
+// Los filtros y la paginación llegan por query params; la respuesta incluye data, page, limit, total y totalPages
 export async function getEvents(req, res, next) {
     try {
-        const events = await eventsService.getAll();
-        res.status(200).json({ status: "success", payload: events });
+        const result = await eventsService.getAll(req.query);
+        res.status(200).json({ status: "success", ...result });
     } catch (error) {
         next(error);
     }
