@@ -1,6 +1,6 @@
 import { eventsRepository } from "../repositories/events.repository.js";
 import { categoriesRepository } from "../repositories/categories.repository.js";
-import { EVENT_STATUS, EVENT_STATUS_VALUES } from "../config/event-status.js";
+import { EVENT_STATUS, EVENT_STATUS_VALUES, STATUS_TRANSITIONS } from "../config/event-status.js";
 import { AppError } from "../utils/errors.js";
 
 // Campos que se toman del body: organizer y status nunca los decide el cliente
@@ -139,6 +139,15 @@ function toPublicRef(value, fields) {
     }
 
     return { id: value._id, ...Object.fromEntries(fields.map(field => [field, value[field]])) };
+}
+
+// Un evento publicado cuya fecha ya pasó está finalizado, aunque la base todavía diga published
+function currentStatus(event) {
+    if (event.status === EVENT_STATUS.PUBLISHED && new Date(event.date) <= new Date()) {
+        return EVENT_STATUS.FINISHED;
+    }
+
+    return event.status;
 }
 
 // Datos que devuelve la API (id en lugar de _id, sin campos internos)
@@ -320,11 +329,13 @@ export class EventsService {
 
     // El permiso (dueño o admin) ya lo validó authorizeEventOwnerOrAdmin; acá van las reglas del evento
     async update(event, changes) {
-        if (event.status === EVENT_STATUS.CANCELLED) {
+        const status = currentStatus(event);
+
+        if (status === EVENT_STATUS.CANCELLED) {
             throw new AppError("Un evento cancelado no puede modificarse", 409);
         }
 
-        if (event.status === EVENT_STATUS.FINISHED) {
+        if (status === EVENT_STATUS.FINISHED) {
             throw new AppError("Un evento finalizado no puede modificarse", 409);
         }
 
@@ -337,13 +348,46 @@ export class EventsService {
         return toPublicEvent(updatedEvent);
     }
 
-    async cancel(event) {
-        if (event.status === EVENT_STATUS.CANCELLED) {
-            throw new AppError("El evento ya está cancelado", 409);
+    // Cancelar es un cambio de estado más (status: cancelled): el evento nunca se borra de la base
+    async changeStatus(event, newStatus) {
+        if (isEmpty(newStatus)) {
+            throw new AppError("Falta el nuevo estado (status)", 400);
         }
 
-        const cancelledEvent = await this.repository.update(event._id, { status: EVENT_STATUS.CANCELLED });
-        return toPublicEvent(cancelledEvent);
+        if (!EVENT_STATUS_VALUES.includes(newStatus)) {
+            throw new AppError(`Estado inválido. Valores permitidos: ${EVENT_STATUS_VALUES.join(", ")}`, 400);
+        }
+
+        // finished no se elige a mano: es la consecuencia de que pase la fecha del evento
+        if (newStatus === EVENT_STATUS.FINISHED) {
+            throw new AppError("El estado finished se asigna automáticamente cuando pasa la fecha del evento", 400);
+        }
+
+        const status = currentStatus(event);
+
+        if (status === EVENT_STATUS.CANCELLED) {
+            throw new AppError("Un evento cancelado no puede cambiar de estado", 409);
+        }
+
+        if (status === EVENT_STATUS.FINISHED) {
+            throw new AppError("Un evento finalizado no puede cambiar de estado", 409);
+        }
+
+        if (status === newStatus) {
+            throw new AppError(`El evento ya está en estado ${newStatus}`, 409);
+        }
+
+        if (!STATUS_TRANSITIONS[status].includes(newStatus)) {
+            throw new AppError(`No se puede pasar de ${status} a ${newStatus}`, 409);
+        }
+
+        // Un borrador con fecha vencida no se publica: nadie podría inscribirse
+        if (newStatus === EVENT_STATUS.PUBLISHED && new Date(event.date) <= new Date()) {
+            throw new AppError("No se puede publicar un evento cuya fecha ya pasó", 400);
+        }
+
+        const updatedEvent = await this.repository.update(event._id, { status: newStatus });
+        return toPublicEvent(updatedEvent);
     }
 }
 

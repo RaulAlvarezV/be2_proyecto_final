@@ -155,12 +155,12 @@ describe("Reglas de eventos (EventsService)", () => {
         await assert.rejects(service.create(validEvent({ date: "2020-01-01" }), "org1"), { status: 400 });
     });
 
-    test("un evento cancelado no se modifica ni se vuelve a cancelar", async () => {
+    test("un evento cancelado no se modifica ni cambia de estado", async () => {
         const service = new EventsService(createFakeRepository(), categoriesRepository);
         const cancelled = { _id: "ev1", status: "cancelled" };
 
         await assert.rejects(service.update(cancelled, { title: "Otro" }), { status: 409 });
-        await assert.rejects(service.cancel(cancelled), { status: 409 });
+        await assert.rejects(service.changeStatus(cancelled, "published"), { status: 409 });
     });
 
     test("el listado público no muestra borradores", async () => {
@@ -168,7 +168,7 @@ describe("Reglas de eventos (EventsService)", () => {
         const service = new EventsService(repository, categoriesRepository);
         await service.create(validEvent({ title: "Borrador" }), "org1");
         const toCancel = await service.create(validEvent({ title: "Cancelado" }), "org1");
-        await service.cancel({ _id: toCancel.id, status: "draft" });
+        await service.changeStatus({ _id: toCancel.id, status: "draft", date: futureDate() }, "cancelled");
 
         const { data: events } = await service.getAll();
         assert.deepEqual(events.map(e => e.title), ["Cancelado"]);

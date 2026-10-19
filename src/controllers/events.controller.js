@@ -39,10 +39,11 @@ export async function updateEvent(req, res, next) {
     }
 }
 
-export async function cancelEvent(req, res, next) {
+// Body: { "status": "published" } o { "status": "cancelled" }
+export async function changeEventStatus(req, res, next) {
     try {
-        const cancelledEvent = await eventsService.cancel(req.event);
-        res.status(200).json({ status: "success", message: "Evento cancelado", payload: cancelledEvent });
+        const updatedEvent = await eventsService.changeStatus(req.event, req.body?.status);
+        res.status(200).json({ status: "success", message: `Estado actualizado a ${updatedEvent.status}`, payload: updatedEvent });
     } catch (error) {
         next(error);
     }
