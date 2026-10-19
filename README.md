@@ -306,6 +306,30 @@ npm test
 
 ## Evidencias
 
+### Flujo completo con Passport (Pre-entrega 4)
+
+Mismas rutas y respuestas que en la Pre-entrega 3, ahora resueltas por las estrategias de Passport.
+
+**1. Registro (estrategia `register`):** el email llega como `"Lucia@Mail.com "` y se guarda normalizado, con rol `user` y sin la contraseña en la respuesta.
+
+![Registro con la estrategia register respondiendo 201](docs/evidencias/p4-register-201.png)
+
+**2. Login (estrategia `login`):** responde `200` y el controller setea la cookie `currentUser` con `Max-Age=3600`, `HttpOnly` y `SameSite=Lax`.
+
+![Login con la estrategia login y la cookie currentUser en los headers](docs/evidencias/p4-login-cookie.png)
+
+**3. `/current` con la cookie (estrategia `current`):** `200` con `{ id, email, role }`. El `id` es el mismo del registro.
+
+![GET /api/sessions/current con la estrategia current respondiendo 200](docs/evidencias/p4-current-200.png)
+
+**4. Logout:** borra la cookie y responde `200 Sesión cerrada` (no pasa por Passport).
+
+![Logout respondiendo 200 Sesión cerrada](docs/evidencias/p4-logout-200.png)
+
+**5. `/current` después del logout:** sin la cookie, la estrategia `current` falla y la ruta responde `401 No autenticado`.
+
+![GET /api/sessions/current respondiendo 401 después del logout](docs/evidencias/p4-current-401.png)
+
 ### Login, current y logout (Pre-entrega 3)
 
 **Login:** responde `200 Login correcto` y setea la cookie `currentUser` con `Max-Age=3600`, `HttpOnly` y `SameSite=Lax` (sin `Secure` porque corre en desarrollo, por `http`).
