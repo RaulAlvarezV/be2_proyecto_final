@@ -4,6 +4,20 @@ Proyecto final de Backend II (Coderhouse). API REST para gestionar torneos y cl�
 
 Esta versión corresponde a la **Pre-entrega 5**: suma **roles y autorización**. Cada acción se valida según el rol del usuario (`user`, `organizer`, `admin`) y, cuando corresponde, según quién es el dueño del recurso, diferenciando **401** (sin sesión) de **403** (sin permiso). La autenticación sigue centralizada en estrategias de Passport.js con JWT en la cookie HTTP Only `currentUser`, igual que en la Pre-entrega 4.
 
+## Versiones por entrega
+
+Cada pre-entrega quedó en su propia rama, así se puede revisar el código tal como estaba en cada etapa. Cada rama incluye todo lo de las anteriores.
+
+| Entrega | Rama | Qué suma |
+| --- | --- | --- |
+| Pre-entrega 1 | [`pre-entrega-1`](https://github.com/RaulAlvarezV/be2_proyecto_final/tree/pre-entrega-1) | Estructura base por capas (routes, controllers, services, repositories, DAO, models) |
+| Pre-entrega 2 | [`pre-entrega-2`](https://github.com/RaulAlvarezV/be2_proyecto_final/tree/pre-entrega-2) | Registro seguro de usuarios con bcrypt, modelos Category y Registration |
+| Pre-entrega 3 | [`pre-entrega-3`](https://github.com/RaulAlvarezV/be2_proyecto_final/tree/pre-entrega-3) | Login con JWT en la cookie `currentUser`, ruta `/current`, logout y tests automatizados |
+| Pre-entrega 4 | [`pre-entrega-4`](https://github.com/RaulAlvarezV/be2_proyecto_final/tree/pre-entrega-4) | Autenticación centralizada en estrategias de Passport (register, login, current) |
+| Pre-entrega 5 | [`pre-entrega-5`](https://github.com/RaulAlvarezV/be2_proyecto_final/tree/pre-entrega-5) | Roles y autorización: matriz de permisos, `authorizeRoles`, propiedad de eventos y rutas de administración |
+
+Las capturas de cada entrega están en la sección [Evidencias](#evidencias).
+
 ## Temática
 
 La plataforma permite que clubes y entrenadores publiquen **torneos** y **clínicas técnicas** de hockey, y que los jugadores se inscriban.
