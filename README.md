@@ -584,6 +584,46 @@ npm test
 
 ## Evidencias
 
+### Eventos y lógica de negocio (Pre-entrega 6)
+
+Usuarios de prueba: **Lucía** (`user`), **Raul** (`organizer`) y **Ana** (`admin`). Categorías cargadas: `torneo`, `clinica` y `workshop`.
+
+**1. Crear evento con rol `user` → 403:** Lucía está autenticada, pero su rol no puede crear eventos.
+
+![POST /api/events con rol user respondiendo 403](docs/evidencias/p6-crear-user-403.png)
+
+**2. Crear evento con fecha pasada → 400:** la regla de fecha futura se valida en el service.
+
+![POST /api/events con fecha 2020-01-01 respondiendo 400](docs/evidencias/p6-fecha-pasada-400.png)
+
+**3. Crear evento con `capacity: 0` → 400:** el cupo tiene que ser un entero mayor a cero.
+
+![POST /api/events con capacity 0 respondiendo 400](docs/evidencias/p6-capacity-0-400.png)
+
+**4. El organizer modifica su propio evento → 200:** Raul cambia el cupo del Torneo Apertura Sub 16.
+
+![PUT /api/events/:id del organizer dueño respondiendo 200](docs/evidencias/p6-editar-propio-200.png)
+
+**5. El organizer modifica un evento ajeno → 403:** Raul intenta editar el Torneo Clausura Primera, que creó Ana.
+
+![PUT /api/events/:id de otro organizador respondiendo 403](docs/evidencias/p6-editar-ajeno-403.png)
+
+**6. El admin modifica el evento de otro organizador → 200:** Ana edita el torneo de Raul; el `organizer` sigue siendo Raul.
+
+![PUT /api/events/:id como admin respondiendo 200](docs/evidencias/p6-admin-edita-200.png)
+
+**7. Cambiar el estado de un evento cancelado → 409:** la Clínica de juego aéreo se canceló con `PATCH /status` y ya no puede volver a publicarse.
+
+![PATCH /api/events/:id/status sobre un evento cancelado respondiendo 409](docs/evidencias/p6-estado-cancelado-409.png)
+
+**8. Listado con filtros `?status=published&category=workshop&page=2&limit=5` → 200:** hay 7 workshops publicados, la página 2 trae los últimos 2 (se ve el final de la respuesta con `page`, `limit`, `total` y `totalPages`).
+
+![GET /api/events con filtros y paginación respondiendo 200](docs/evidencias/p6-listado-filtros.png)
+
+**9. Evento inexistente → 404.**
+
+![GET /api/events/:id inexistente respondiendo 404](docs/evidencias/p6-evento-404.png)
+
 ### Roles y autorización (Pre-entrega 5)
 
 Usuarios de prueba: **Lucía** (`user`), **Raul** (`organizer`) y **Ana** (`admin`, el primer admin asignado en la base).
