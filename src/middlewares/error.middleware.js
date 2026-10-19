@@ -11,9 +11,10 @@ export function errorHandler(error, _req, res, _next) {
         return res.status(400).json({ status: "error", message: "El cuerpo de la petición no es un JSON válido" });
     }
 
-    // Índice unique de MongoDB: dos registros con el mismo email al mismo tiempo
+    // Índice unique de MongoDB: dos altas con el mismo valor al mismo tiempo (email de usuario o nombre de categoría)
     if (error.code === DUPLICATE_KEY_CODE) {
-        return res.status(409).json({ status: "error", message: "El email ya está registrado" });
+        const message = error.keyPattern?.email ? "El email ya está registrado" : "Ya existe un registro con ese valor";
+        return res.status(409).json({ status: "error", message });
     }
 
     // Mongoose rechazó los datos (campo obligatorio faltante, valor fuera de rango, id mal formado): es un 400, no un 500
