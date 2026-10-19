@@ -6,23 +6,13 @@ import { COOKIE_NAME } from "./cookie.js";
 import { ROLES } from "./permissions.js";
 import { usersRepository } from "../repositories/users.repository.js";
 import { createHash, isValidPassword } from "../utils/hash.js";
+import { toPublicUser } from "../dto/user.dto.js";
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MIN_PASSWORD_LENGTH = 8;
 
 // Autenticación fallida sin error interno: done(null, false, info). El status lo usa passportCall para responder
 const fail = (done, message, status) => done(null, false, { message, status });
-
-// Datos públicos del usuario: nunca se devuelve la contraseña (ni hasheada)
-function toPublicUser(user) {
-    return {
-        id: user._id,
-        first_name: user.first_name,
-        last_name: user.last_name,
-        email: user.email,
-        role: user.role
-    };
-}
 
 // Estrategia register: valida, normaliza el email, controla duplicados, hashea y crea el usuario con rol user
 function registerStrategy(repository) {

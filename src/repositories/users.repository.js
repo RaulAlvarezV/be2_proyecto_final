@@ -5,6 +5,10 @@ class UsersRepository {
         this.dao = dao;
     }
 
+    async getAll() {
+        return this.dao.find();
+    }
+
     async getByEmail(email) {
         return this.dao.findOne({ email });
     }
@@ -15,6 +19,10 @@ class UsersRepository {
 
     async create(data) {
         return this.dao.create(data);
+    }
+
+    async updateRole(id, role) {
+        return this.dao.updateById(id, { role });
     }
 }
 
