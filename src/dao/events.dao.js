@@ -24,6 +24,14 @@ class EventsDao {
         return eventModel.findById(id).lean();
     }
 
+    async findDetailById(id) {
+        return eventModel
+            .findById(id)
+            .populate("category", CATEGORY_FIELDS)
+            .populate("organizer", ORGANIZER_FIELDS)
+            .lean();
+    }
+
     async create(data) {
         const event = await eventModel.create(data);
         return event.toObject();

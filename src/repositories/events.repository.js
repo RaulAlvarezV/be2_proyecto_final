@@ -15,8 +15,14 @@ class EventsRepository {
         return { docs, total };
     }
 
+    // Sin populate: lo usa el middleware de propiedad para comparar el organizer con el usuario logueado
     async getById(id) {
         return this.dao.findById(id);
+    }
+
+    // Con los datos de la categoría y del organizador, para mostrar el evento
+    async getDetailById(id) {
+        return this.dao.findDetailById(id);
     }
 
     async create(data) {

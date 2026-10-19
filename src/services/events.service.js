@@ -292,6 +292,19 @@ export class EventsService {
         };
     }
 
+    async getById(id) {
+        await this.finishPastEvents();
+
+        const event = await this.repository.getDetailById(id);
+
+        // Un borrador todavía no es público: se responde igual que si no existiera
+        if (!event || event.status === EVENT_STATUS.DRAFT) {
+            throw new AppError("Evento no encontrado", 404);
+        }
+
+        return toPublicEvent(event);
+    }
+
     async create(data, organizerId) {
         const eventData = await this.normalizeEventData(data, { isNew: true });
 

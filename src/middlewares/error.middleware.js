@@ -17,6 +17,11 @@ export function errorHandler(error, _req, res, _next) {
         return res.status(409).json({ status: "error", message });
     }
 
+    // Un id que no tiene formato de ObjectId (/api/events/123): no puede existir, pero es un error del cliente
+    if (error.name === "CastError" && error.kind === "ObjectId") {
+        return res.status(400).json({ status: "error", message: "El id no tiene un formato válido" });
+    }
+
     // Mongoose rechazó los datos (campo obligatorio faltante, valor fuera de rango, id mal formado): es un 400, no un 500
     if (error.name === "ValidationError" || error.name === "CastError") {
         return res.status(400).json({ status: "error", message: "Datos inválidos" });

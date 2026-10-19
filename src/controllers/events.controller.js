@@ -10,6 +10,15 @@ export async function getEvents(req, res, next) {
     }
 }
 
+export async function getEventById(req, res, next) {
+    try {
+        const event = await eventsService.getById(req.params.id);
+        res.status(200).json({ status: "success", payload: event });
+    } catch (error) {
+        next(error);
+    }
+}
+
 // Ya pasó por auth y authorizeRoles: req.user es organizer o admin
 export async function createEvent(req, res, next) {
     try {

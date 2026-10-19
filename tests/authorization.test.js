@@ -89,14 +89,14 @@ describe("authorizeEventOwnerOrAdmin", () => {
     const ownership = createEventOwnershipMiddleware(repository);
 
     test("el organizer dueño pasa y el evento queda en req.event", async () => {
-        const { req, nextCalled } = await run(ownership, { user: organizer, params: { eid: "ev1" } });
+        const { req, nextCalled } = await run(ownership, { user: organizer, params: { id: "ev1" } });
 
         assert.equal(nextCalled, true);
         assert.equal(req.event, event);
     });
 
     test("otro organizer recibe 403", async () => {
-        const { res, nextCalled } = await run(ownership, { user: otherOrganizer, params: { eid: "ev1" } });
+        const { res, nextCalled } = await run(ownership, { user: otherOrganizer, params: { id: "ev1" } });
 
         assert.equal(nextCalled, false);
         assert.equal(res.statusCode, 403);
@@ -104,14 +104,14 @@ describe("authorizeEventOwnerOrAdmin", () => {
     });
 
     test("el admin puede modificar cualquier evento", async () => {
-        const { nextCalled } = await run(ownership, { user: admin, params: { eid: "ev1" } });
+        const { nextCalled } = await run(ownership, { user: admin, params: { id: "ev1" } });
 
         assert.equal(nextCalled, true);
     });
 
     test("evento inexistente responde 404 y sin sesión 401", async () => {
-        const notFound = await run(ownership, { user: organizer, params: { eid: "otro" } });
-        const noSession = await run(ownership, { params: { eid: "ev1" } });
+        const notFound = await run(ownership, { user: organizer, params: { id: "otro" } });
+        const noSession = await run(ownership, { params: { id: "ev1" } });
 
         assert.equal(notFound.res.statusCode, 404);
         assert.equal(noSession.res.statusCode, 401);
@@ -119,7 +119,7 @@ describe("authorizeEventOwnerOrAdmin", () => {
 
     test("un error de la base pasa al manejador global", async () => {
         const failing = createEventOwnershipMiddleware({ async getById() { throw new Error("db caída"); } });
-        const { nextCalled, error } = await run(failing, { user: organizer, params: { eid: "ev1" } });
+        const { nextCalled, error } = await run(failing, { user: organizer, params: { id: "ev1" } });
 
         assert.equal(nextCalled, true);
         assert.equal(error.message, "db caída");

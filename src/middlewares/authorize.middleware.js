@@ -34,7 +34,7 @@ export function createEventOwnershipMiddleware(repository) {
             }
 
             // Un id mal formado lanza CastError, que el manejador global responde con 400
-            const event = await repository.getById(req.params.eid);
+            const event = await repository.getById(req.params.id);
             if (!event) {
                 return res.status(404).json({ status: "error", message: "Evento no encontrado" });
             }
