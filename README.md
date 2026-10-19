@@ -444,6 +444,26 @@ npm test
 
 ## Evidencias
 
+### Roles y autorización (Pre-entrega 5)
+
+Usuarios de prueba: **Lucía** (`user`), **Raul** (`organizer`) y **Ana** (`admin`, el primer admin asignado en la base).
+
+**1. `POST /api/events` con rol `user` → 403:** está autenticada, pero su rol no tiene permiso para crear eventos.
+
+![POST /api/events con rol user respondiendo 403](docs/evidencias/p5-evento-user-403.png)
+
+**2. `POST /api/events` con rol `organizer` → 201:** el evento se crea activo y el `organizer` es el usuario logueado (su `id` coincide con el de Raul en la captura 4).
+
+![POST /api/events con rol organizer respondiendo 201](docs/evidencias/p5-evento-organizer-201.png)
+
+**3. Ruta administrativa `GET /api/users` con rol `organizer` → 403.**
+
+![GET /api/users con rol organizer respondiendo 403](docs/evidencias/p5-users-organizer-403.png)
+
+**4. Ruta administrativa `GET /api/users` con rol `admin` → 200:** lista de usuarios con su rol y sin contraseñas.
+
+![GET /api/users con rol admin respondiendo 200](docs/evidencias/p5-users-admin-200.png)
+
 ### Flujo completo con Passport (Pre-entrega 4)
 
 Mismas rutas y respuestas que en la Pre-entrega 3, ahora resueltas por las estrategias de Passport.
