@@ -33,6 +33,7 @@ describe("Matriz de permisos", () => {
         assert.deepEqual([...PERMISSIONS.CREATE_EVENT], [ROLES.ORGANIZER, ROLES.ADMIN]);
         assert.deepEqual([...PERMISSIONS.MANAGE_EVENT], [ROLES.ORGANIZER, ROLES.ADMIN]);
         assert.deepEqual([...PERMISSIONS.MANAGE_USERS], [ROLES.ADMIN]);
+        assert.deepEqual([...PERMISSIONS.MANAGE_CATEGORIES], [ROLES.ADMIN]);
     });
 
     test("no se puede modificar en tiempo de ejecución (Object.freeze)", () => {
