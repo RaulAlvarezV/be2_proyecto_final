@@ -22,6 +22,14 @@ const categoriesRepository = {
     }
 };
 
+// Repository falso de tickets: sin lugares reservados y registra las cancelaciones en cascada
+const ticketsRepository = {
+    reserved: 0,
+    cancelledEvents: [],
+    async getReservedSeats() { return this.reserved; },
+    async cancelActiveByEvent(eventId) { this.cancelledEvents.push(eventId); return { modifiedCount: 1 }; }
+};
+
 // Repository falso de eventos: guarda en memoria y registra la última consulta del listado
 function createFakeRepository(initial = []) {
     const events = [...initial];
@@ -54,7 +62,7 @@ const validEvent = (changes = {}) => ({
 describe("Crear eventos (EventsService.create)", () => {
     test("crea el evento como borrador, con la referencia de la categoría y el organizer de la sesión", async () => {
         const repository = createFakeRepository();
-        const service = new EventsService(repository, categoriesRepository);
+        const service = new EventsService(repository, categoriesRepository, ticketsRepository);
 
         const event = await service.create(validEvent({ title: "  Torneo Apertura  ", organizer: "otro", status: "published" }), "org1");
 
@@ -66,7 +74,7 @@ describe("Crear eventos (EventsService.create)", () => {
     });
 
     test("acepta la categoría por id", async () => {
-        const service = new EventsService(createFakeRepository(), categoriesRepository);
+        const service = new EventsService(createFakeRepository(), categoriesRepository, ticketsRepository);
 
         const event = await service.create(validEvent({ category: "cat-workshop" }), "org1");
 
@@ -74,14 +82,14 @@ describe("Crear eventos (EventsService.create)", () => {
     });
 
     test("rechaza fecha pasada y fecha inválida con mensajes distintos", async () => {
-        const service = new EventsService(createFakeRepository(), categoriesRepository);
+        const service = new EventsService(createFakeRepository(), categoriesRepository, ticketsRepository);
 
         await assert.rejects(service.create(validEvent({ date: pastDate() }), "org1"), { status: 400, message: "La fecha del evento debe ser futura" });
         await assert.rejects(service.create(validEvent({ date: "no-es-fecha" }), "org1"), { status: 400, message: "La fecha no es válida" });
     });
 
     test("rechaza capacity 0, negativa, decimal o como texto", async () => {
-        const service = new EventsService(createFakeRepository(), categoriesRepository);
+        const service = new EventsService(createFakeRepository(), categoriesRepository, ticketsRepository);
 
         for (const capacity of [0, -5, 2.5]) {
             await assert.rejects(service.create(validEvent({ capacity }), "org1"), { status: 400, message: "La capacidad debe ser un número entero mayor a cero" });
@@ -90,7 +98,7 @@ describe("Crear eventos (EventsService.create)", () => {
     });
 
     test("rechaza precio negativo y acepta precio 0 (evento gratuito)", async () => {
-        const service = new EventsService(createFakeRepository(), categoriesRepository);
+        const service = new EventsService(createFakeRepository(), categoriesRepository, ticketsRepository);
 
         await assert.rejects(service.create(validEvent({ price: -1 }), "org1"), { status: 400, message: "El precio no puede ser negativo" });
         await assert.rejects(service.create(validEvent({ price: "gratis" }), "org1"), { status: 400, message: "El precio debe ser un número" });
@@ -100,7 +108,7 @@ describe("Crear eventos (EventsService.create)", () => {
     });
 
     test("informa qué campos obligatorios faltan y rechaza textos vacíos", async () => {
-        const service = new EventsService(createFakeRepository(), categoriesRepository);
+        const service = new EventsService(createFakeRepository(), categoriesRepository, ticketsRepository);
 
         await assert.rejects(service.create({ title: "Torneo" }, "org1"), {
             status: 400,
@@ -111,7 +119,7 @@ describe("Crear eventos (EventsService.create)", () => {
     });
 
     test("rechaza una categoría que no existe o que no es texto", async () => {
-        const service = new EventsService(createFakeRepository(), categoriesRepository);
+        const service = new EventsService(createFakeRepository(), categoriesRepository, ticketsRepository);
 
         await assert.rejects(service.create(validEvent({ category: "hockey-sobre-hielo" }), "org1"), { status: 400, message: "La categoría no existe" });
         await assert.rejects(service.create(validEvent({ category: { $ne: null } }), "org1"), { status: 400, message: "La categoría no es válida" });
@@ -121,7 +129,7 @@ describe("Crear eventos (EventsService.create)", () => {
 describe("Editar eventos (EventsService.update)", () => {
     test("actualiza solo los campos permitidos y los valida", async () => {
         const repository = createFakeRepository([{ _id: "ev1", ...validEvent(), status: EVENT_STATUS.PUBLISHED, organizer: "org1" }]);
-        const service = new EventsService(repository, categoriesRepository);
+        const service = new EventsService(repository, categoriesRepository, ticketsRepository);
 
         const updated = await service.update(repository.events[0], { capacity: 20, organizer: "otro", status: "cancelled" });
 
@@ -133,7 +141,7 @@ describe("Editar eventos (EventsService.update)", () => {
     });
 
     test("sin campos válidos responde 400", async () => {
-        const service = new EventsService(createFakeRepository(), categoriesRepository);
+        const service = new EventsService(createFakeRepository(), categoriesRepository, ticketsRepository);
 
         await assert.rejects(service.update({ _id: "ev1", status: EVENT_STATUS.DRAFT }, { status: "published" }), {
             status: 400,
@@ -142,7 +150,7 @@ describe("Editar eventos (EventsService.update)", () => {
     });
 
     test("un evento cancelado o finalizado no se modifica", async () => {
-        const service = new EventsService(createFakeRepository(), categoriesRepository);
+        const service = new EventsService(createFakeRepository(), categoriesRepository, ticketsRepository);
 
         await assert.rejects(service.update({ _id: "ev1", status: EVENT_STATUS.CANCELLED, date: futureDate() }, { title: "Otro" }), {
             status: 409,
@@ -155,7 +163,7 @@ describe("Editar eventos (EventsService.update)", () => {
     });
 
     test("un publicado cuya fecha ya pasó cuenta como finalizado aunque la base diga published", async () => {
-        const service = new EventsService(createFakeRepository(), categoriesRepository);
+        const service = new EventsService(createFakeRepository(), categoriesRepository, ticketsRepository);
 
         await assert.rejects(service.update({ _id: "ev1", status: EVENT_STATUS.PUBLISHED, date: pastDate() }, { title: "Otro" }), {
             status: 409,
@@ -169,7 +177,7 @@ describe("Cambio de estado (EventsService.changeStatus)", () => {
 
     test("draft → published y published → cancelled", async () => {
         const repository = createFakeRepository([draft()]);
-        const service = new EventsService(repository, categoriesRepository);
+        const service = new EventsService(repository, categoriesRepository, ticketsRepository);
 
         const published = await service.changeStatus(repository.events[0], EVENT_STATUS.PUBLISHED);
         const cancelled = await service.changeStatus(repository.events[0], EVENT_STATUS.CANCELLED);
@@ -179,14 +187,14 @@ describe("Cambio de estado (EventsService.changeStatus)", () => {
     });
 
     test("un evento cancelado no cambia de estado", async () => {
-        const service = new EventsService(createFakeRepository(), categoriesRepository);
+        const service = new EventsService(createFakeRepository(), categoriesRepository, ticketsRepository);
         const cancelled = { _id: "ev1", status: EVENT_STATUS.CANCELLED, date: futureDate() };
 
         await assert.rejects(service.changeStatus(cancelled, EVENT_STATUS.PUBLISHED), { status: 409, message: "Un evento cancelado no puede cambiar de estado" });
     });
 
     test("no se publica un evento finalizado ni un borrador con fecha vencida", async () => {
-        const service = new EventsService(createFakeRepository(), categoriesRepository);
+        const service = new EventsService(createFakeRepository(), categoriesRepository, ticketsRepository);
 
         await assert.rejects(service.changeStatus({ _id: "ev1", status: EVENT_STATUS.FINISHED, date: pastDate() }, EVENT_STATUS.PUBLISHED), {
             status: 409,
@@ -199,7 +207,7 @@ describe("Cambio de estado (EventsService.changeStatus)", () => {
     });
 
     test("rechaza estado faltante, inválido, finished a mano, repetido y transiciones no permitidas", async () => {
-        const service = new EventsService(createFakeRepository(), categoriesRepository);
+        const service = new EventsService(createFakeRepository(), categoriesRepository, ticketsRepository);
         const published = { _id: "ev1", status: EVENT_STATUS.PUBLISHED, date: futureDate() };
 
         await assert.rejects(service.changeStatus(draft(), undefined), { status: 400, message: "Falta el nuevo estado (status)" });
@@ -220,7 +228,7 @@ describe("Cambio de estado (EventsService.changeStatus)", () => {
 describe("Listado con filtros y paginación (EventsService.getAll)", () => {
     test("arma el filtro de la consigna: ?status=published&category=workshop&page=2&limit=5", async () => {
         const repository = createFakeRepository(Array.from({ length: 12 }, (_, i) => ({ _id: `ev${i + 1}`, title: `Workshop ${i + 1}` })));
-        const service = new EventsService(repository, categoriesRepository);
+        const service = new EventsService(repository, categoriesRepository, ticketsRepository);
 
         const result = await service.getAll({ status: "published", category: "workshop", page: "2", limit: "5" });
 
@@ -236,7 +244,7 @@ describe("Listado con filtros y paginación (EventsService.getAll)", () => {
 
     test("sin filtros oculta los borradores, usa page 1, limit 10, orden por fecha y finaliza los vencidos", async () => {
         const repository = createFakeRepository();
-        const service = new EventsService(repository, categoriesRepository);
+        const service = new EventsService(repository, categoriesRepository, ticketsRepository);
 
         const result = await service.getAll();
 
@@ -248,7 +256,7 @@ describe("Listado con filtros y paginación (EventsService.getAll)", () => {
 
     test("location parcial sin mayúsculas, con el texto escapado", async () => {
         const repository = createFakeRepository();
-        const service = new EventsService(repository, categoriesRepository);
+        const service = new EventsService(repository, categoriesRepository, ticketsRepository);
 
         await service.getAll({ location: "buenos" });
         assert.deepEqual(repository.lastPage.filter.location, { $regex: "buenos", $options: "i" });
@@ -259,7 +267,7 @@ describe("Listado con filtros y paginación (EventsService.getAll)", () => {
 
     test("rango de fechas: dateTo con solo el día incluye todo ese día", async () => {
         const repository = createFakeRepository();
-        const service = new EventsService(repository, categoriesRepository);
+        const service = new EventsService(repository, categoriesRepository, ticketsRepository);
 
         await service.getAll({ dateFrom: "2026-11-01", dateTo: "2026-11-30" });
 
@@ -269,7 +277,7 @@ describe("Listado con filtros y paginación (EventsService.getAll)", () => {
 
     test("sort descendente, limit con tope de 50", async () => {
         const repository = createFakeRepository();
-        const service = new EventsService(repository, categoriesRepository);
+        const service = new EventsService(repository, categoriesRepository, ticketsRepository);
 
         const result = await service.getAll({ sort: "-price", limit: "100000" });
 
@@ -279,7 +287,7 @@ describe("Listado con filtros y paginación (EventsService.getAll)", () => {
 
     test("una categoría inexistente devuelve una página vacía sin consultar eventos", async () => {
         const repository = createFakeRepository([{ _id: "ev1" }]);
-        const service = new EventsService(repository, categoriesRepository);
+        const service = new EventsService(repository, categoriesRepository, ticketsRepository);
 
         const result = await service.getAll({ category: "polo" });
 
@@ -288,7 +296,7 @@ describe("Listado con filtros y paginación (EventsService.getAll)", () => {
     });
 
     test("query params inválidos responden 400 con su propio mensaje", async () => {
-        const service = new EventsService(createFakeRepository(), categoriesRepository);
+        const service = new EventsService(createFakeRepository(), categoriesRepository, ticketsRepository);
         const cases = [
             [{ page: "0" }, "page debe ser un número entero mayor a cero"],
             [{ limit: "diez" }, "limit debe ser un número entero mayor a cero"],
@@ -315,7 +323,7 @@ describe("Detalle de un evento (EventsService.getById)", () => {
             category: { _id: "cat-torneo", name: "torneo" },
             organizer: { _id: "org1", first_name: "Raúl", last_name: "Álvarez" }
         }]);
-        const service = new EventsService(repository, categoriesRepository);
+        const service = new EventsService(repository, categoriesRepository, ticketsRepository);
 
         const event = await service.getById("ev1");
 
@@ -325,7 +333,7 @@ describe("Detalle de un evento (EventsService.getById)", () => {
 
     test("inexistente o borrador responde 404", async () => {
         const repository = createFakeRepository([{ _id: "ev1", status: EVENT_STATUS.DRAFT }]);
-        const service = new EventsService(repository, categoriesRepository);
+        const service = new EventsService(repository, categoriesRepository, ticketsRepository);
 
         await assert.rejects(service.getById("ev1"), { status: 404, message: "Evento no encontrado" });
         await assert.rejects(service.getById("nada"), { status: 404 });

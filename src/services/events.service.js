@@ -1,5 +1,6 @@
 import { eventsRepository } from "../repositories/events.repository.js";
 import { categoriesRepository } from "../repositories/categories.repository.js";
+import { ticketsRepository } from "../repositories/tickets.repository.js";
 import { EVENT_STATUS, EVENT_STATUS_VALUES, STATUS_TRANSITIONS } from "../config/event-status.js";
 import { AppError } from "../utils/errors.js";
 import { toPublicRef } from "../utils/public-ref.js";
@@ -159,9 +160,10 @@ function toPublicEvent(event) {
 }
 
 export class EventsService {
-    constructor(repository, categoriesRepository) {
+    constructor(repository, categoriesRepository, ticketsRepository) {
         this.repository = repository;
         this.categoriesRepository = categoriesRepository;
+        this.ticketsRepository = ticketsRepository;
     }
 
     // La categoría se acepta por id o por nombre ("workshop"); en el evento siempre se guarda la referencia
@@ -336,6 +338,14 @@ export class EventsService {
             throw new AppError("No hay campos válidos para actualizar", 400);
         }
 
+        // El cupo no puede quedar por debajo de los lugares que ya están reservados
+        if (eventData.capacity !== undefined) {
+            const reserved = await this.ticketsRepository.getReservedSeats(event._id);
+            if (eventData.capacity < reserved) {
+                throw new AppError(`La capacidad no puede ser menor a los lugares ya reservados (${reserved})`, 409);
+            }
+        }
+
         const updatedEvent = await this.repository.update(event._id, eventData);
         return toPublicEvent(updatedEvent);
     }
@@ -379,8 +389,14 @@ export class EventsService {
         }
 
         const updatedEvent = await this.repository.update(event._id, { status: newStatus });
+
+        // Un evento cancelado no puede tener inscripciones activas: se cancelan sus tickets (el historial se conserva)
+        if (newStatus === EVENT_STATUS.CANCELLED) {
+            await this.ticketsRepository.cancelActiveByEvent(event._id);
+        }
+
         return toPublicEvent(updatedEvent);
     }
 }
 
-export const eventsService = new EventsService(eventsRepository, categoriesRepository);
+export const eventsService = new EventsService(eventsRepository, categoriesRepository, ticketsRepository);

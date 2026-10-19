@@ -1,5 +1,5 @@
 import { ticketsDao } from "../dao/tickets.dao.js";
-import { ACTIVE_TICKET_STATUS } from "../config/ticket-status.js";
+import { TICKET_STATUS, ACTIVE_TICKET_STATUS } from "../config/ticket-status.js";
 
 class TicketsRepository {
     constructor(dao) {
@@ -33,6 +33,14 @@ class TicketsRepository {
 
     async create(data) {
         return this.dao.create(data);
+    }
+
+    // Cuando se cancela un evento, sus tickets activos también se cancelan: no quedan inscripciones activas a un evento cancelado
+    async cancelActiveByEvent(eventId) {
+        return this.dao.updateMany(
+            { event: eventId, status: { $in: ACTIVE_TICKET_STATUS } },
+            { status: TICKET_STATUS.CANCELLED, cancelledAt: new Date() }
+        );
     }
 
     async update(id, data) {

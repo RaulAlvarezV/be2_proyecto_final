@@ -46,6 +46,10 @@ class TicketsDao {
         return result?.total ?? 0;
     }
 
+    async updateMany(filter, data) {
+        return ticketModel.updateMany(filter, data);
+    }
+
     async updateById(id, data) {
         return ticketModel.findByIdAndUpdate(id, data, { new: true, runValidators: true }).lean();
     }

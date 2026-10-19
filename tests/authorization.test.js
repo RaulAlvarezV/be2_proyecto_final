@@ -25,6 +25,7 @@ const organizer = { id: "org1", role: ROLES.ORGANIZER };
 const otherOrganizer = { id: "org2", role: ROLES.ORGANIZER };
 const player = { id: "user1", role: ROLES.USER };
 const futureDate = () => new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString();
+const ticketsRepository = { async getReservedSeats() { return 0; }, async cancelActiveByEvent() { return { modifiedCount: 0 }; } };
 const categoriesRepository = { async getByIdOrName(value) { return value === "torneo" ? { _id: "cat1", name: "torneo" } : null; } };
 const validEvent = (changes = {}) => ({ title: "Torneo", description: "Torneo de verano", category: "torneo", date: futureDate(), location: "Rosario", capacity: 16, ...changes });
 
@@ -143,7 +144,7 @@ describe("Reglas de eventos (EventsService)", () => {
     }
 
     test("al crear, el organizer sale de la sesión y el evento nace como borrador", async () => {
-        const service = new EventsService(createFakeRepository(), categoriesRepository);
+        const service = new EventsService(createFakeRepository(), categoriesRepository, ticketsRepository);
         const event = await service.create(validEvent({ organizer: "otro", status: "cancelled" }), "org1");
 
         assert.equal(event.organizer, "org1");
@@ -151,13 +152,13 @@ describe("Reglas de eventos (EventsService)", () => {
     });
 
     test("no se puede crear un evento con fecha pasada", async () => {
-        const service = new EventsService(createFakeRepository(), categoriesRepository);
+        const service = new EventsService(createFakeRepository(), categoriesRepository, ticketsRepository);
 
         await assert.rejects(service.create(validEvent({ date: "2020-01-01" }), "org1"), { status: 400 });
     });
 
     test("un evento cancelado no se modifica ni cambia de estado", async () => {
-        const service = new EventsService(createFakeRepository(), categoriesRepository);
+        const service = new EventsService(createFakeRepository(), categoriesRepository, ticketsRepository);
         const cancelled = { _id: "ev1", status: "cancelled" };
 
         await assert.rejects(service.update(cancelled, { title: "Otro" }), { status: 409 });
@@ -166,7 +167,7 @@ describe("Reglas de eventos (EventsService)", () => {
 
     test("el listado público no muestra borradores", async () => {
         const repository = createFakeRepository();
-        const service = new EventsService(repository, categoriesRepository);
+        const service = new EventsService(repository, categoriesRepository, ticketsRepository);
         await service.create(validEvent({ title: "Borrador" }), "org1");
         const toCancel = await service.create(validEvent({ title: "Cancelado" }), "org1");
         await service.changeStatus({ _id: toCancel.id, status: "draft", date: futureDate() }, "cancelled");
