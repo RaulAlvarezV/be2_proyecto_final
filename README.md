@@ -2,7 +2,7 @@
 
 Proyecto final de Backend II (Coderhouse). API REST para gestionar torneos y clínicas de hockey sobre césped: usuarios, eventos, categorías e inscripciones.
 
-Esta versión corresponde a la **Pre-entrega 6**: suma la **entidad Event con su lógica de negocio**. Los eventos tienen un ciclo de vida (`draft` → `published` → `cancelled` / `finished`), se validan en la capa de services (fecha futura, cupo, precio, qué estados se pueden cambiar) y se listan con **filtros, paginación y ordenamiento**. Los permisos siguen como en la Pre-entrega 5: crear eventos es para `organizer` y `admin`, y cada organizer solo modifica los suyos. La autenticación sigue centralizada en estrategias de Passport.js con JWT en la cookie HTTP Only `currentUser`.
+Esta versión corresponde a la **Pre-entrega 7**: suma el **flujo de inscripciones con tickets**. Un usuario autenticado se inscribe a un evento publicado, el backend controla **cupos** (solo cuentan los tickets activos), evita **inscripciones duplicadas**, permite **cancelar** sin borrar el ticket (el lugar se libera solo) y envía un **email de confirmación con Nodemailer**. Los eventos mantienen su ciclo de vida, filtros y paginación de la Pre-entrega 6, y los permisos siguen centralizados en middlewares de autorización.
 
 ## Versiones por entrega
 
@@ -16,6 +16,7 @@ Cada pre-entrega quedó en su propia rama, así se puede revisar el código tal 
 | Pre-entrega 4 | [`pre-entrega-4`](https://github.com/RaulAlvarezV/be2_proyecto_final/tree/pre-entrega-4) | Autenticación centralizada en estrategias de Passport (register, login, current) |
 | Pre-entrega 5 | [`pre-entrega-5`](https://github.com/RaulAlvarezV/be2_proyecto_final/tree/pre-entrega-5) | Roles y autorización: matriz de permisos, `authorizeRoles`, propiedad de eventos y rutas de administración |
 | Pre-entrega 6 | [`pre-entrega-6`](https://github.com/RaulAlvarezV/be2_proyecto_final/tree/pre-entrega-6) | Entidad Event con estados, reglas de negocio en el service, filtros, paginación, orden y categorías |
+| Pre-entrega 7 | [`pre-entrega-7`](https://github.com/RaulAlvarezV/be2_proyecto_final/tree/pre-entrega-7) | Tickets: inscripción con control de cupos, duplicados, cancelaciones, inscriptos por evento y email con Nodemailer |
 
 Las capturas de cada entrega están en la sección [Evidencias](#evidencias).
 
@@ -38,7 +39,7 @@ Todo usuario nuevo se registra con rol `user`. El rol nunca se toma del body del
 | `User` | Usuario de la plataforma: `first_name`, `last_name`, `email` (único), `password` (hash) y `role` (`user` por defecto; `user`, `organizer` o `admin`) |
 | `Event` | Torneo, clínica o workshop: `title`, `description`, `category` (referencia), `date`, `location`, `capacity`, `price`, `status` y `organizer` (referencia al `User` que lo creó). Ver [Eventos](#eventos) |
 | `Category` | Tipo de evento (por ejemplo `torneo`, `clinica`, `workshop`). El nombre es único y se guarda en minúsculas |
-| `Registration` | Inscripción de un usuario a un evento. Un usuario no puede inscribirse dos veces al mismo evento |
+| `Ticket` | Inscripción de un usuario a un evento: referencias a `user` y `event`, `status`, `quantity`, `reservationCode`, `createdAt` y `cancelledAt`. Ver [Tickets e inscripciones](#tickets-e-inscripciones). (Reemplaza al modelo `Registration` de las primeras entregas) |
 
 ## Tecnologías
 
@@ -49,10 +50,9 @@ Todo usuario nuevo se registra con rol `user`. El rol nunca se toma del body del
 - jsonwebtoken (JWT)
 - cookie-parser (lectura de la cookie de autenticación)
 - Passport.js: `passport`, `passport-local` (registro y login) y `passport-jwt` (usuario actual)
+- Nodemailer (email de confirmación de inscripción)
 - node:test (tests automatizados, incluido en Node)
 - Módulos ESM (`import` / `export`)
-
-Próximas entregas: inscripciones, Nodemailer.
 
 ## Eventos
 
@@ -105,6 +105,8 @@ Están en **`src/services/events.service.js`**, no en las rutas ni en los contro
 | Un evento **finalizado** no se modifica ni cambia de estado | `409` |
 | No se publica un evento cuya fecha ya pasó | `400` |
 | `organizer` y `status` del body se ignoran al crear y editar | El estado solo cambia con `PATCH /:id/status` |
+| `capacity` no puede quedar por debajo de los lugares ya reservados | `409` "La capacidad no puede ser menor a los lugares ya reservados (N)" |
+| Al **cancelar** un evento se cancelan sus tickets activos | No quedan inscripciones activas a un evento cancelado |
 
 ### Filtros, paginación y orden
 
@@ -138,6 +140,64 @@ Ejemplo: `GET /api/events?status=published&category=workshop&page=2&limit=5`
 
 Del organizador solo se muestra el nombre (las rutas de eventos son públicas, el email no se expone).
 
+## Tickets e inscripciones
+
+### Modelo `Ticket`
+
+| Campo | Tipo | Reglas |
+| --- | --- | --- |
+| `user` | ObjectId → `User` | Sale de la sesión (`req.user`), **nunca** del body. Solo la referencia |
+| `event` | ObjectId → `Event` | Sale de la URL (`/api/events/:eid/tickets`). Solo la referencia |
+| `status` | String | `confirmed`, `pending` o `cancelled` |
+| `quantity` | Number | Lugares que reserva. Entero mayor a 0 (por defecto `1`) |
+| `reservationCode` | String | Código único de reserva (ej. `HKY-8F3A2C1D`), para identificar la inscripción sin exponer el id de MongoDB |
+| `createdAt` | Date | Cuándo se hizo la inscripción (`timestamps`) |
+| `cancelledAt` | Date | Cuándo se canceló (`null` mientras está activo) |
+
+El modelo tiene un **índice único parcial** `{ user, event }` que solo aplica a los tickets activos: es el segundo control contra duplicados (el primero está en el service) y permite volver a inscribirse después de cancelar.
+
+### Estados del ticket
+
+| Estado | Significa | ¿Ocupa cupo? |
+| --- | --- | --- |
+| `confirmed` | Inscripción confirmada (es el estado con el que se crea) | Sí |
+| `pending` | Lugar reservado a la espera de una confirmación (queda definido para un flujo con pago) | Sí |
+| `cancelled` | Inscripción cancelada. El ticket **no se borra**: queda el historial con `cancelledAt` | No |
+
+`confirmed` y `pending` son los estados **activos** (`ACTIVE_TICKET_STATUS` en `src/config/ticket-status.js`).
+
+### Flujo de inscripción
+
+`POST /api/events/:eid/tickets` → `auth` (401 sin sesión) → `tickets.controller` → **`tickets.service`**, que valida en este orden:
+
+1. `quantity` es un entero mayor a 0 → si no, `400`.
+2. El evento existe (un borrador cuenta como inexistente) → si no, `404`.
+3. El evento no está cancelado ni finalizado (también cuenta como finalizado uno publicado cuya fecha ya pasó) → si no, `409`.
+4. El usuario no tiene ya un ticket activo para ese evento → si no, `409` "Ya tenés una inscripción activa para este evento".
+5. Hay cupo suficiente → si no, `409` "No hay cupos suficientes: quedan N lugares disponibles".
+6. Se crea el ticket `confirmed` con su código de reserva.
+7. Se envía el email de confirmación.
+
+### Regla de cupos
+
+```
+lugares disponibles = capacity del evento − suma de quantity de los tickets activos (confirmed + pending)
+```
+
+La suma se hace con un `aggregate` en MongoDB. Los tickets `cancelled` no se cuentan, así que **al cancelar un ticket el lugar se libera solo**, sin tocar el evento. El evento no guarda un contador de inscriptos que pueda quedar desactualizado.
+
+### Cancelación
+
+`PATCH /api/tickets/:tid/cancel` cambia `status` a `cancelled` y registra `cancelledAt`. Lo puede hacer el dueño del ticket o un `admin` (middleware `authorizeTicketOwnerOrAdmin`). No se cancela un ticket ya cancelado (`409`) ni uno de un evento finalizado (`409`).
+
+### Email de confirmación
+
+Al confirmar una inscripción, **Nodemailer** envía un email al usuario con el evento, la fecha, el lugar, los lugares reservados y el código de reserva. Las credenciales salen de las variables `MAIL_*` del `.env` (ver [Variables de entorno](#variables-de-entorno)), nunca del código.
+
+- La operación principal es el ticket: **si el email falla, la inscripción igual queda hecha**. El error se registra en la consola del servidor y la respuesta lo indica con `emailSent: false`.
+- Si las variables `MAIL_*` no están configuradas, el servidor arranca igual (avisa por consola) y no intenta enviar.
+- Los datos del evento se escapan antes de armar el HTML del email.
+
 ## Roles y autorización
 
 ### Roles
@@ -160,6 +220,12 @@ Los roles y la matriz están definidos en **`src/config/permissions.js`** (conge
 | Modificar / cambiar el estado de eventos propios | `PUT /api/events/:id` · `PATCH /api/events/:id/status` | ❌ 403 | ✅ | ✅ |
 | Modificar / cambiar el estado de cualquier evento | (las mismas rutas) | ❌ 403 | ❌ 403 | ✅ |
 | Crear categorías | `POST /api/categories` | ❌ 403 | ❌ 403 | ✅ |
+| Inscribirse a un evento | `POST /api/events/:eid/tickets` | ✅ | ✅ | ✅ (con sesión) |
+| Ver sus propios tickets | `GET /api/tickets/my-tickets` | ✅ | ✅ | ✅ |
+| Cancelar su propio ticket | `PATCH /api/tickets/:tid/cancel` | ✅ | ✅ | ✅ |
+| Cancelar el ticket de otro usuario | (la misma ruta) | ❌ 403 | ❌ 403 | ✅ |
+| Ver los inscriptos de sus eventos | `GET /api/events/:eid/tickets` | ❌ 403 | ✅ | ✅ |
+| Ver los inscriptos de cualquier evento | (la misma ruta) | ❌ 403 | ❌ 403 | ✅ |
 | Ver todos los usuarios | `GET /api/users` | ❌ 403 | ❌ 403 | ✅ |
 | Cambiar el rol de un usuario | `PATCH /api/users/:uid/role` | ❌ 403 | ❌ 403 | ✅ |
 
@@ -179,6 +245,8 @@ Ejemplo con `POST /api/events`: sin login → **401**; logueado como `user` → 
 | `auth` | `middlewares/auth.middleware.js` | Autenticación: estrategia `current` de Passport. Lee el JWT de la cookie, valida y carga `req.user`. **401** si no hay sesión válida |
 | `authorizeRoles(...roles)` | `middlewares/authorize.middleware.js` | Autorización por rol: recibe los roles permitidos y compara contra `req.user.role`. **403** si no coincide (y 401 si no hay `req.user`) |
 | `authorizeEventOwnerOrAdmin` | `middlewares/authorize.middleware.js` | Autorización por propiedad: deja pasar al organizer **dueño** del evento o al `admin`. **403** para un organizer ajeno, **404** si el evento no existe. Deja el evento en `req.event` |
+| `authorizeEventTicketsAccess` | `middlewares/authorize.middleware.js` | La misma regla de propiedad sobre `/api/events/:eid/tickets`: solo el organizer dueño o el `admin` ven los inscriptos |
+| `authorizeTicketOwnerOrAdmin` | `middlewares/authorize.middleware.js` | Propiedad del ticket: deja pasar a quien se inscribió o al `admin`. **403** para otro usuario, **404** si el ticket no existe. Deja el ticket en `req.ticket` |
 
 Las rutas aplican los middlewares en orden, usando la matriz (ningún rol queda escrito suelto en las rutas):
 
@@ -245,6 +313,11 @@ NODE_ENV=development
 MONGO_URL=mongodb://localhost:27017/be2_proyecto_final
 JWT_SECRET=
 JWT_EXPIRES_IN=1h
+MAIL_HOST=smtp.ethereal.email
+MAIL_PORT=587
+MAIL_USER=
+MAIL_PASS=
+MAIL_FROM="Plataforma de Hockey <no-reply@hockey.local>"
 ```
 
 | Variable | Descripción |
@@ -254,6 +327,13 @@ JWT_EXPIRES_IN=1h
 | `MONGO_URL` | Cadena de conexión a MongoDB (local o Atlas) |
 | `JWT_SECRET` | Clave para firmar y verificar los JWT. **Obligatoria**: sin ella el servidor no arranca. Usar una clave larga y aleatoria |
 | `JWT_EXPIRES_IN` | Duración del token (por defecto `1h`) |
+| `MAIL_HOST` | Servidor SMTP (por ejemplo `smtp.ethereal.email` para pruebas o `smtp.gmail.com`) |
+| `MAIL_PORT` | Puerto SMTP: `587` (STARTTLS) o `465` (conexión segura) |
+| `MAIL_USER` | Usuario de la cuenta SMTP |
+| `MAIL_PASS` | Contraseña de la cuenta SMTP (en Gmail, una contraseña de aplicación) |
+| `MAIL_FROM` | Remitente que ve el usuario en el email |
+
+Para probar el envío sin una casilla real se puede usar [Ethereal](https://ethereal.email): crea una cuenta SMTP de prueba y muestra los emails enviados en una bandeja web, sin entregarlos a nadie. Si las variables `MAIL_*` no están completas, el servidor arranca igual y las inscripciones funcionan, pero no se envían emails.
 
 El archivo `.env` no se sube al repositorio.
 
@@ -282,10 +362,13 @@ src/
 │   ├── cookie.js                # nombre y opciones de la cookie currentUser
 │   ├── permissions.js           # roles y matriz de permisos
 │   ├── event-status.js          # estados del evento y transiciones permitidas
+│   ├── ticket-status.js         # estados del ticket y cuáles cuentan como activos
+│   ├── mailer.config.js         # transporter de Nodemailer con las variables MAIL_*
 │   └── passport.config.js       # estrategias register, login y current (initializePassport)
 ├── routes/
 │   ├── health.router.js
-│   ├── events.router.js         # públicas (listado y detalle), crear (rol) y modificar/estado (rol + propiedad)
+│   ├── events.router.js         # públicas (listado y detalle), crear (rol), modificar/estado (rol + propiedad) e inscripción
+│   ├── tickets.router.js        # mis tickets y cancelación (dueño o admin)
 │   ├── categories.router.js     # listado público y alta solo admin
 │   ├── sessions.router.js       # las rutas delegan en las estrategias de Passport
 │   └── users.router.js          # rutas administrativas (solo admin)
@@ -293,38 +376,47 @@ src/
 │   ├── health.controller.js
 │   ├── events.controller.js
 │   ├── categories.controller.js
+│   ├── tickets.controller.js
 │   ├── sessions.controller.js   # responde, genera el token y maneja la cookie
 │   └── users.controller.js
 ├── services/
 │   ├── events.service.js        # reglas de eventos: validaciones, estados, filtros y paginación
 │   ├── categories.service.js    # nombre obligatorio, en minúsculas y sin duplicados
+│   ├── tickets.service.js       # inscripción: estado del evento, duplicados, cupos y cancelación
+│   ├── mail.service.js          # email de confirmación (HTML escapado)
 │   └── users.service.js         # listado sin contraseñas y cambio de rol
 ├── dto/
-│   └── user.dto.js              # datos públicos del usuario (sin contraseña)
+│   ├── user.dto.js              # datos públicos del usuario (sin contraseña)
+│   └── ticket.dto.js            # datos públicos del ticket
 ├── repositories/
 │   ├── events.repository.js     # página de resultados + total
 │   ├── categories.repository.js # búsqueda por id o por nombre
+│   ├── tickets.repository.js    # tickets activos, cupo ocupado y cancelación por evento
 │   └── users.repository.js
 ├── dao/
 │   ├── events.dao.js            # consultas con populate, sort, skip y limit
 │   ├── categories.dao.js
+│   ├── tickets.dao.js           # aggregate para sumar los lugares ocupados
 │   └── users.dao.js
 ├── models/
 │   ├── User.js
 │   ├── Event.js
 │   ├── Category.js
-│   └── Registration.js
+│   └── Ticket.js
 ├── middlewares/
 │   ├── auth.middleware.js       # autenticación: passportCall y auth (estrategia current) → 401
-│   ├── authorize.middleware.js  # autorización: authorizeRoles → 403 y authorizeEventOwnerOrAdmin
+│   ├── authorize.middleware.js  # autorización: authorizeRoles → 403 y propiedad de eventos y tickets
 │   └── error.middleware.js      # rutas no encontradas y manejo global de errores
 └── utils/
     ├── jwt.js                   # generateToken y verifyToken
     ├── hash.js                  # createHash e isValidPassword (bcrypt)
+    ├── public-ref.js            # referencias con populate → { id, campos }
+    ├── reservation-code.js      # código de reserva aleatorio (HKY-XXXXXXXX)
     └── errors.js                # error con código de estado (AppError)
 tests/
 ├── authorization.test.js        # matriz, authorizeRoles, propiedad de eventos y administración de usuarios
 ├── events.test.js               # reglas de eventos, estados, filtros, paginación y categorías
+├── tickets.test.js              # inscripción, cupos, duplicados, cancelación, propiedad y email
 ├── passport.strategies.test.js  # estrategias register, login y current con un repository falso (sin MongoDB)
 └── jwt.test.js                  # helper de JWT
 ```
@@ -355,6 +447,10 @@ GET /api/sessions/current
 | PATCH | `/api/events/:id/status` | Cambiar el estado: publicar o cancelar | `organizer` dueño, `admin` |
 | GET | `/api/categories` | Listar categorías | Público |
 | POST | `/api/categories` | Crear una categoría | `admin` |
+| POST | `/api/events/:eid/tickets` | Inscribirse a un evento | Con sesión |
+| GET | `/api/events/:eid/tickets` | Inscriptos de un evento con el resumen de cupo | `organizer` dueño, `admin` |
+| GET | `/api/tickets/my-tickets` | Mis tickets con los datos del evento | Con sesión (propios) |
+| PATCH | `/api/tickets/:tid/cancel` | Cancelar un ticket | Dueño del ticket, `admin` |
 | GET | `/api/users` | Listar todos los usuarios (sin contraseñas) | `admin` |
 | PATCH | `/api/users/:uid/role` | Cambiar el rol de un usuario | `admin` |
 | POST | `/api/sessions/register` | Registro seguro de usuario | Público |
@@ -421,6 +517,62 @@ Mismos permisos que `PUT`. Body: `{ "status": "published" }` o `{ "status": "can
 ### `GET /api/categories` y `POST /api/categories`
 
 `GET` es público y devuelve `{ id, name, description }` de cada categoría. `POST` es solo para `admin`, con body `{ "name": "workshop", "description": "Workshops técnicos" }` → `201`. El nombre se guarda en minúsculas; un nombre repetido (sin importar mayúsculas) responde `409 La categoría ya existe`.
+
+### `POST /api/events/:eid/tickets`
+
+Requiere sesión (cualquier rol). El usuario sale de la cookie, no del body. Body opcional: `{ "quantity": 2 }` (por defecto 1).
+
+Response `201`:
+
+```json
+{
+  "status": "success",
+  "message": "Inscripción confirmada. Te enviamos un email con el código de reserva",
+  "payload": { "id": "66a1...", "reservationCode": "HKY-8F3A2C1D", "status": "confirmed", "quantity": 2, "event": "6690...", "user": "665f...", "createdAt": "2026-10-19T12:00:00.000Z", "cancelledAt": null },
+  "emailSent": true
+}
+```
+
+| Código | Cuándo |
+| --- | --- |
+| `401` | Sin sesión |
+| `404` | El evento no existe (o es un borrador) |
+| `400` | `quantity` no es un entero mayor a 0, o el id no tiene formato válido |
+| `409` | Evento cancelado o finalizado, inscripción activa duplicada, o cupo insuficiente (`"No hay cupos suficientes: quedan 1 lugares disponibles"`) |
+
+### `GET /api/tickets/my-tickets`
+
+Requiere sesión. Devuelve solo los tickets del usuario logueado (activos y cancelados), con `title`, `date`, `location` y `status` del evento:
+
+```json
+{ "status": "success", "payload": [ { "id": "66a1...", "reservationCode": "HKY-8F3A2C1D", "status": "confirmed", "quantity": 2, "event": { "id": "6690...", "title": "Torneo Apertura Sub 16", "date": "2026-11-28T18:00:00.000Z", "location": "Rosario", "status": "published" }, "user": "665f...", "createdAt": "...", "cancelledAt": null } ] }
+```
+
+### `GET /api/events/:eid/tickets`
+
+Requiere sesión, rol `organizer` o `admin` y, si es organizer, ser el dueño del evento. Devuelve el resumen de cupo y los inscriptos (nombre y email, nunca la contraseña):
+
+```json
+{ "status": "success", "payload": { "summary": { "capacity": 12, "reserved": 3, "available": 9 }, "tickets": [ { "id": "66a1...", "reservationCode": "HKY-8F3A2C1D", "status": "confirmed", "quantity": 2, "user": { "id": "665f...", "first_name": "Lucía", "last_name": "Gómez", "email": "lucia@mail.com" }, "...": "..." } ] } }
+```
+
+| Código | Cuándo |
+| --- | --- |
+| `401` | Sin sesión |
+| `403` | Rol `user`, u `organizer` de otro evento: `"No tenés permisos para ver los inscriptos de este evento"` |
+| `404` | El evento no existe |
+
+### `PATCH /api/tickets/:tid/cancel`
+
+Requiere sesión y ser el dueño del ticket o `admin`. Pasa el ticket a `cancelled` y registra `cancelledAt`; el lugar vuelve a estar disponible.
+
+| Código | Cuándo |
+| --- | --- |
+| `200` | `"Inscripción cancelada"` |
+| `401` | Sin sesión |
+| `403` | El ticket es de otro usuario: `"No tenés permisos para cancelar este ticket"` |
+| `404` | El ticket no existe |
+| `409` | El ticket ya está cancelado, o el evento ya finalizó |
 
 ### `GET /api/users` y `PATCH /api/users/:uid/role` (solo admin)
 
@@ -567,18 +719,32 @@ Con un usuario de cada rol (el primer admin se crea como se explica en "Crear el
 6. **GET** `/api/events?status=published&category=workshop&page=2&limit=5` → `200` con `data`, `page`, `limit`, `total` y `totalPages`.
 7. **GET** `/api/events/507f1f77bcf86cd799439011` (id que no existe) → `404`.
 
+### Probar inscripciones
+
+Con un evento publicado de `capacity: 3`:
+
+1. Como `user` → **POST** `/api/events/<id>/tickets` con `{ "quantity": 2 }` → `201` y llega el email con el código de reserva (con Ethereal, en la bandeja de [ethereal.email](https://ethereal.email/messages)).
+2. Sin cookie → la misma ruta → `401`. Con un id que no existe → `404`.
+3. El mismo `user` otra vez → `409` (inscripción activa duplicada).
+4. Otro `user` con `{ "quantity": 2 }` → `409` "No hay cupos suficientes: quedan 1 lugares disponibles".
+5. **GET** `/api/tickets/my-tickets` → `200` con los datos del evento.
+6. Otro `user` → **PATCH** `/api/tickets/<id del ticket del primero>/cancel` → `403`. El dueño → `200`; ahora el segundo `user` sí puede inscribirse con `quantity: 2`.
+7. **GET** `/api/events/<id>/tickets` como `user` → `403`; como `organizer` de otro evento → `403`; como dueño o `admin` → `200`.
+8. Cancelar el evento con **PATCH** `/api/events/<id>/status` → sus tickets pasan a `cancelled` y una nueva inscripción responde `409`.
+
 ## Tests automatizados
 
 ```bash
 npm test
 ```
 
-64 tests con `node:test` (incluido en Node, sin dependencias extra). No necesitan MongoDB: las estrategias, los middlewares y los services reciben **repositorios falsos en memoria**, aprovechando la inyección de dependencias.
+90 tests con `node:test` (incluido en Node, sin dependencias extra). No necesitan MongoDB ni un servidor de email: las estrategias, los middlewares y los services reciben **repositorios y un mailer falsos en memoria**, aprovechando la inyección de dependencias.
 
 | Archivo | Qué prueba |
 | --- | --- |
 | `tests/authorization.test.js` | **Matriz** (y que no se pueda modificar en tiempo de ejecución). **authorizeRoles:** 401 sin sesión, 403 sin permiso, rutas admin solo para admin, fail closed sin roles. **Propiedad:** dueño, organizer ajeno 403, admin, 404, 401 y errores de la base. **Eventos:** organizer de la sesión, fecha futura, cancelado no se modifica, borradores fuera del listado. **Usuarios:** sin contraseñas, rol inválido 400, propio rol 409, inexistente 404 |
 | `tests/events.test.js` | **Crear:** nace `draft` con el organizer de la sesión, categoría por nombre o id, fecha pasada o inválida, `capacity` 0 / negativa / decimal / texto, precio negativo, campos faltantes. **Editar:** campos permitidos, cancelado y finalizado 409. **Estados:** transiciones válidas, cancelado no cambia, no se publica finalizado ni vencido, tabla congelada. **Listado:** el caso de la consigna (`status`, `category`, `page=2`, `limit=5`), valores por defecto, `location` parcial y escapada, rango de fechas, `sort`, tope de `limit` y query params inválidos. **Detalle:** populate sin email, 404. **Categorías:** minúsculas, vacía 400, duplicada 409 |
+| `tests/tickets.test.js` | **Inscripción:** ticket `confirmed` con el usuario de la sesión, código de reserva, email enviado, `quantity` por defecto, email que falla sin perder la inscripción, evento inexistente / borrador 404, cancelado / finalizado / vencido 409, `quantity` inválida 400, duplicado 409, sin cupo 409 con los lugares que quedan, cupo liberado al cancelar, código repetido. **Consultas:** mis tickets solo propios, inscriptos con resumen de cupo. **Cancelación:** `cancelled` + `cancelledAt` sin borrar, doble cancelación y evento finalizado 409. **Propiedad:** dueño, otro usuario 403, admin, 404, 401, organizer ajeno 403. **Consistencia:** `capacity` menor a reservados 409, cancelar evento cancela tickets. **Repository:** el cupo suma solo activos. **Email:** HTML escapado y sin configuración no envía |
 | `tests/passport.strategies.test.js` | **register:** éxito sin contraseña en la respuesta, hash bcrypt, rol ignorado, duplicado (409), campos faltantes, inválidos o de solo espacios (400). **login:** éxito con `{ id, email, role }` y el mismo 401 para email inexistente y contraseña incorrecta. **current:** token válido, sin cookie, alterado, mal formado, vencido, de otra clave, sin firma (`alg: none`) y usuario inexistente |
 | `tests/jwt.test.js` | Helper de JWT: payload, expiración y token alterado |
 
