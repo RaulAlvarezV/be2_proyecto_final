@@ -49,6 +49,12 @@ export class TicketsService {
         }
     }
 
+    // Solo los tickets del usuario logueado: el id sale de la sesión, así nadie puede pedir los de otro
+    async getMine(userId) {
+        const tickets = await this.repository.getByUser(userId);
+        return tickets.map(toPublicTicket);
+    }
+
     // Inscripción: el usuario sale de la sesión (req.user), nunca del body
     async create(eventId, quantityInput, user) {
         const quantity = validateQuantity(quantityInput);

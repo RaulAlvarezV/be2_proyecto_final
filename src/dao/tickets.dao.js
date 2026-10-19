@@ -1,9 +1,20 @@
 import { Types } from "mongoose";
 import { ticketModel } from "../models/Ticket.js";
 
+// Datos del evento que se muestran junto a cada ticket
+const EVENT_FIELDS = "title date location status";
+
 class TicketsDao {
     async findOne(filter) {
         return ticketModel.findOne(filter).lean();
+    }
+
+    async findByUser(userId) {
+        return ticketModel
+            .find({ user: userId })
+            .populate("event", EVENT_FIELDS)
+            .sort({ createdAt: -1 })
+            .lean();
     }
 
     async create(data) {

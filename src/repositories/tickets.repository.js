@@ -16,6 +16,11 @@ class TicketsRepository {
         return this.dao.sumQuantity({ event: eventId, status: { $in: ACTIVE_TICKET_STATUS } });
     }
 
+    // Tickets del usuario (activos y cancelados) con los datos del evento
+    async getByUser(userId) {
+        return this.dao.findByUser(userId);
+    }
+
     async create(data) {
         return this.dao.create(data);
     }
