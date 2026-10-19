@@ -2,7 +2,7 @@
 
 Proyecto final de Backend II (Coderhouse). API REST para gestionar torneos y clínicas de hockey sobre césped: usuarios, eventos, categorías e inscripciones.
 
-Esta versión corresponde a la **Pre-entrega 5**: suma **roles y autorización**. Cada acción se valida según el rol del usuario (`user`, `organizer`, `admin`) y, cuando corresponde, según quién es el dueño del recurso, diferenciando **401** (sin sesión) de **403** (sin permiso). La autenticación sigue centralizada en estrategias de Passport.js con JWT en la cookie HTTP Only `currentUser`, igual que en la Pre-entrega 4.
+Esta versión corresponde a la **Pre-entrega 6**: suma la **entidad Event con su lógica de negocio**. Los eventos tienen un ciclo de vida (`draft` → `published` → `cancelled` / `finished`), se validan en la capa de services (fecha futura, cupo, precio, qué estados se pueden cambiar) y se listan con **filtros, paginación y ordenamiento**. Los permisos siguen como en la Pre-entrega 5: crear eventos es para `organizer` y `admin`, y cada organizer solo modifica los suyos. La autenticación sigue centralizada en estrategias de Passport.js con JWT en la cookie HTTP Only `currentUser`.
 
 ## Versiones por entrega
 
@@ -15,6 +15,7 @@ Cada pre-entrega quedó en su propia rama, así se puede revisar el código tal 
 | Pre-entrega 3 | [`pre-entrega-3`](https://github.com/RaulAlvarezV/be2_proyecto_final/tree/pre-entrega-3) | Login con JWT en la cookie `currentUser`, ruta `/current`, logout y tests automatizados |
 | Pre-entrega 4 | [`pre-entrega-4`](https://github.com/RaulAlvarezV/be2_proyecto_final/tree/pre-entrega-4) | Autenticación centralizada en estrategias de Passport (register, login, current) |
 | Pre-entrega 5 | [`pre-entrega-5`](https://github.com/RaulAlvarezV/be2_proyecto_final/tree/pre-entrega-5) | Roles y autorización: matriz de permisos, `authorizeRoles`, propiedad de eventos y rutas de administración |
+| Pre-entrega 6 | [`pre-entrega-6`](https://github.com/RaulAlvarezV/be2_proyecto_final/tree/pre-entrega-6) | Entidad Event con estados, reglas de negocio en el service, filtros, paginación, orden y categorías |
 
 Las capturas de cada entrega están en la sección [Evidencias](#evidencias).
 
@@ -35,8 +36,8 @@ Todo usuario nuevo se registra con rol `user`. El rol nunca se toma del body del
 | Modelo | Qué representa |
 | --- | --- |
 | `User` | Usuario de la plataforma: `first_name`, `last_name`, `email` (único), `password` (hash) y `role` (`user` por defecto; `user`, `organizer` o `admin`) |
-| `Event` | Torneo o clínica: nombre, tipo (`torneo` / `clinica`), fecha, lugar, cupo, precio, estado, categoría y organizador |
-| `Category` | Categoría de los eventos (por ejemplo Sub 14, Sub 16, Primera, Arqueras) |
+| `Event` | Torneo, clínica o workshop: `title`, `description`, `category` (referencia), `date`, `location`, `capacity`, `price`, `status` y `organizer` (referencia al `User` que lo creó). Ver [Eventos](#eventos) |
+| `Category` | Tipo de evento (por ejemplo `torneo`, `clinica`, `workshop`). El nombre es único y se guarda en minúsculas |
 | `Registration` | Inscripción de un usuario a un evento. Un usuario no puede inscribirse dos veces al mismo evento |
 
 ## Tecnologías
@@ -52,6 +53,90 @@ Todo usuario nuevo se registra con rol `user`. El rol nunca se toma del body del
 - Módulos ESM (`import` / `export`)
 
 Próximas entregas: inscripciones, Nodemailer.
+
+## Eventos
+
+### Modelo
+
+| Campo | Tipo | Reglas |
+| --- | --- | --- |
+| `title` | String | Obligatorio |
+| `description` | String | Obligatorio |
+| `category` | ObjectId → `Category` | Obligatorio. En el body se puede mandar el **id** o el **nombre** de la categoría (`"workshop"`); se guarda la referencia |
+| `date` | Date | Obligatorio. **Futura** al crear y al editar |
+| `location` | String | Obligatorio |
+| `capacity` | Number | Obligatorio. Entero **mayor a 0** |
+| `price` | Number | Opcional (por defecto `0`, evento gratuito). **No negativo** |
+| `status` | String | `draft`, `published`, `cancelled` o `finished`. Todo evento nace `draft` |
+| `organizer` | ObjectId → `User` | Se asigna solo desde `req.user` al crear; **nunca** se toma del body. Es una referencia, no el usuario embebido |
+
+### Estados
+
+| Estado | Significa | Visible en las rutas públicas |
+| --- | --- | --- |
+| `draft` | Creado pero todavía no publicado | No |
+| `published` | Publicado y disponible | Sí |
+| `cancelled` | Cancelado. **No se borra** de la base: se conserva el historial | Sí |
+| `finished` | Ya ocurrió | Sí |
+
+Cambios de estado permitidos con `PATCH /api/events/:id/status` (tabla `STATUS_TRANSITIONS` en `src/config/event-status.js`):
+
+| Desde | Puede pasar a |
+| --- | --- |
+| `draft` | `published` (si la fecha todavía no pasó) o `cancelled` |
+| `published` | `cancelled` |
+| `cancelled` | Ninguno: es un estado final |
+| `finished` | Ninguno: es un estado final |
+
+`finished` no se elige a mano: un evento `published` cuya fecha ya pasó se marca como `finished` automáticamente antes de cada consulta (y las reglas lo tratan como finalizado aunque la base todavía no se haya actualizado).
+
+### Reglas de negocio
+
+Están en **`src/services/events.service.js`**, no en las rutas ni en los controllers. El modelo de Mongoose define la forma del dato y el service decide qué acciones tienen sentido.
+
+| Regla | Respuesta |
+| --- | --- |
+| No se crea ni se edita un evento con fecha pasada | `400` "La fecha del evento debe ser futura" |
+| `capacity` tiene que ser un entero mayor a 0 | `400` "La capacidad debe ser un número entero mayor a cero" |
+| `price` no puede ser negativo | `400` "El precio no puede ser negativo" |
+| Faltan campos obligatorios | `400` "Faltan campos obligatorios: ..." (con la lista) |
+| La categoría tiene que existir | `400` "La categoría no existe" |
+| Un evento **cancelado** no se modifica ni cambia de estado | `409` |
+| Un evento **finalizado** no se modifica ni cambia de estado | `409` |
+| No se publica un evento cuya fecha ya pasó | `400` |
+| `organizer` y `status` del body se ignoran al crear y editar | El estado solo cambia con `PATCH /:id/status` |
+
+### Filtros, paginación y orden
+
+`GET /api/events` acepta estos query params (todos opcionales y combinables):
+
+| Param | Ejemplo | Qué hace |
+| --- | --- | --- |
+| `status` | `published` | Filtra por estado (`published`, `cancelled`, `finished`). Sin este filtro se listan todos menos los borradores |
+| `category` | `workshop` | Filtra por categoría, por nombre o por id. Una categoría que no existe devuelve una lista vacía |
+| `location` | `rosario` | Coincidencia parcial y sin distinguir mayúsculas |
+| `dateFrom` | `2026-11-01` | Eventos desde esa fecha |
+| `dateTo` | `2026-11-30` | Eventos hasta esa fecha (con solo el día, incluye todo ese día) |
+| `page` | `2` | Página (por defecto `1`) |
+| `limit` | `5` | Resultados por página (por defecto `10`, **máximo 50**) |
+| `sort` | `-date` | Orden por `date`, `price`, `capacity`, `title` o `createdAt`; con `-` adelante es descendente (por defecto `date`) |
+
+Un valor inválido (`page=0`, `sort=password`, `status=archivado`, una fecha que no es fecha, `dateFrom` posterior a `dateTo`) responde `400` con un mensaje que indica cuál es el problema.
+
+Ejemplo: `GET /api/events?status=published&category=workshop&page=2&limit=5`
+
+```json
+{
+  "status": "success",
+  "data": [ { "id": "6690...", "title": "Workshop de arqueras", "category": { "id": "668f...", "name": "workshop" }, "organizer": { "id": "665f...", "first_name": "Raul", "last_name": "Alvarez" }, "status": "published", "...": "..." } ],
+  "page": 2,
+  "limit": 5,
+  "total": 12,
+  "totalPages": 3
+}
+```
+
+Del organizador solo se muestra el nombre (las rutas de eventos son públicas, el email no se expone).
 
 ## Roles y autorización
 
@@ -69,11 +154,12 @@ Los roles y la matriz están definidos en **`src/config/permissions.js`** (conge
 
 | Acción | Ruta | user | organizer | admin |
 | --- | --- | --- | --- | --- |
-| Consultar eventos publicados | `GET /api/events` | ✅ | ✅ | ✅ (pública, sin login) |
+| Consultar eventos y categorías | `GET /api/events` · `GET /api/events/:id` · `GET /api/categories` | ✅ | ✅ | ✅ (públicas, sin login) |
 | Ver su propia sesión | `GET /api/sessions/current` | ✅ | ✅ | ✅ |
 | Crear eventos | `POST /api/events` | ❌ 403 | ✅ | ✅ |
-| Modificar / cancelar eventos propios | `PUT /api/events/:eid` · `PATCH /api/events/:eid/cancel` | ❌ 403 | ✅ | ✅ |
-| Modificar / cancelar cualquier evento | (las mismas rutas) | ❌ 403 | ❌ 403 | ✅ |
+| Modificar / cambiar el estado de eventos propios | `PUT /api/events/:id` · `PATCH /api/events/:id/status` | ❌ 403 | ✅ | ✅ |
+| Modificar / cambiar el estado de cualquier evento | (las mismas rutas) | ❌ 403 | ❌ 403 | ✅ |
+| Crear categorías | `POST /api/categories` | ❌ 403 | ❌ 403 | ✅ |
 | Ver todos los usuarios | `GET /api/users` | ❌ 403 | ❌ 403 | ✅ |
 | Cambiar el rol de un usuario | `PATCH /api/users/:uid/role` | ❌ 403 | ❌ 403 | ✅ |
 
@@ -98,7 +184,7 @@ Las rutas aplican los middlewares en orden, usando la matriz (ningún rol queda 
 
 ```javascript
 router.post("/", auth, authorizeRoles(...PERMISSIONS.CREATE_EVENT), createEvent);
-router.put("/:eid", auth, authorizeRoles(...PERMISSIONS.MANAGE_EVENT), authorizeEventOwnerOrAdmin, updateEvent);
+router.put("/:id", auth, authorizeRoles(...PERMISSIONS.MANAGE_EVENT), authorizeEventOwnerOrAdmin, updateEvent);
 router.use(auth, authorizeRoles(...PERMISSIONS.MANAGE_USERS)); // todas las rutas de /api/users
 ```
 
@@ -195,27 +281,33 @@ src/
 │   ├── db.js                    # conexión a MongoDB
 │   ├── cookie.js                # nombre y opciones de la cookie currentUser
 │   ├── permissions.js           # roles y matriz de permisos
+│   ├── event-status.js          # estados del evento y transiciones permitidas
 │   └── passport.config.js       # estrategias register, login y current (initializePassport)
 ├── routes/
 │   ├── health.router.js
-│   ├── events.router.js         # públicas, crear (rol) y modificar/cancelar (rol + propiedad)
+│   ├── events.router.js         # públicas (listado y detalle), crear (rol) y modificar/estado (rol + propiedad)
+│   ├── categories.router.js     # listado público y alta solo admin
 │   ├── sessions.router.js       # las rutas delegan en las estrategias de Passport
 │   └── users.router.js          # rutas administrativas (solo admin)
 ├── controllers/
 │   ├── health.controller.js
 │   ├── events.controller.js
+│   ├── categories.controller.js
 │   ├── sessions.controller.js   # responde, genera el token y maneja la cookie
 │   └── users.controller.js
 ├── services/
-│   ├── events.service.js        # reglas de eventos: fecha futura, campos permitidos, cancelados
+│   ├── events.service.js        # reglas de eventos: validaciones, estados, filtros y paginación
+│   ├── categories.service.js    # nombre obligatorio, en minúsculas y sin duplicados
 │   └── users.service.js         # listado sin contraseñas y cambio de rol
 ├── dto/
 │   └── user.dto.js              # datos públicos del usuario (sin contraseña)
 ├── repositories/
-│   ├── events.repository.js
+│   ├── events.repository.js     # página de resultados + total
+│   ├── categories.repository.js # búsqueda por id o por nombre
 │   └── users.repository.js
 ├── dao/
-│   ├── events.dao.js
+│   ├── events.dao.js            # consultas con populate, sort, skip y limit
+│   ├── categories.dao.js
 │   └── users.dao.js
 ├── models/
 │   ├── User.js
@@ -232,6 +324,7 @@ src/
     └── errors.js                # error con código de estado (AppError)
 tests/
 ├── authorization.test.js        # matriz, authorizeRoles, propiedad de eventos y administración de usuarios
+├── events.test.js               # reglas de eventos, estados, filtros, paginación y categorías
 ├── passport.strategies.test.js  # estrategias register, login y current con un repository falso (sin MongoDB)
 └── jwt.test.js                  # helper de JWT
 ```
@@ -255,10 +348,13 @@ GET /api/sessions/current
 | Método | Ruta | Descripción | Acceso |
 | --- | --- | --- | --- |
 | GET | `/api/health` | Verifica que el servidor esté activo | Público |
-| GET | `/api/events` | Torneos y clínicas publicados (activos) | Público |
-| POST | `/api/events` | Crear un torneo o clínica | `organizer`, `admin` |
-| PUT | `/api/events/:eid` | Modificar un evento | `organizer` dueño, `admin` |
-| PATCH | `/api/events/:eid/cancel` | Cancelar un evento | `organizer` dueño, `admin` |
+| GET | `/api/events` | Listado con filtros, paginación y orden (sin borradores) | Público |
+| GET | `/api/events/:id` | Detalle de un evento | Público |
+| POST | `/api/events` | Crear un evento (nace `draft`) | `organizer`, `admin` |
+| PUT | `/api/events/:id` | Modificar un evento | `organizer` dueño, `admin` |
+| PATCH | `/api/events/:id/status` | Cambiar el estado: publicar o cancelar | `organizer` dueño, `admin` |
+| GET | `/api/categories` | Listar categorías | Público |
+| POST | `/api/categories` | Crear una categoría | `admin` |
 | GET | `/api/users` | Listar todos los usuarios (sin contraseñas) | `admin` |
 | PATCH | `/api/users/:uid/role` | Cambiar el rol de un usuario | `admin` |
 | POST | `/api/sessions/register` | Registro seguro de usuario | Público |
@@ -268,38 +364,63 @@ GET /api/sessions/current
 
 ### `POST /api/events`
 
-Requiere sesión y rol `organizer` o `admin`. El organizador del evento es siempre el usuario logueado y todo evento nace `active` (se ignoran `organizer` y `status` del body).
+Requiere sesión y rol `organizer` o `admin`. El organizador del evento es siempre el usuario logueado y todo evento nace `draft` (se ignoran `organizer` y `status` del body). Para que aparezca en el listado público hay que publicarlo con `PATCH /api/events/:id/status`.
 
 Request:
 
 ```json
-{ "name": "Torneo Apertura Sub 16", "type": "torneo", "date": "2026-11-15T15:00:00.000Z", "place": "Club Atlético", "capacity": 12, "price": 15000 }
+{ "title": "Torneo Apertura Sub 16", "description": "Torneo de seven para la categoría sub 16", "category": "torneo", "date": "2026-11-15T15:00:00.000Z", "location": "Rosario", "capacity": 12, "price": 15000 }
 ```
 
 Response `201`:
 
 ```json
-{ "status": "success", "payload": { "id": "6690...", "name": "Torneo Apertura Sub 16", "type": "torneo", "date": "2026-11-15T15:00:00.000Z", "place": "Club Atlético", "capacity": 12, "price": 15000, "status": "active", "organizer": "665f2a..." } }
+{ "status": "success", "payload": { "id": "6690...", "title": "Torneo Apertura Sub 16", "description": "Torneo de seven para la categoría sub 16", "category": "668f...", "date": "2026-11-15T15:00:00.000Z", "location": "Rosario", "capacity": 12, "price": 15000, "status": "draft", "organizer": "665f2a..." } }
 ```
 
 | Código | Cuándo |
 | --- | --- |
 | `401` | Sin sesión |
 | `403` | Rol `user` |
-| `400` | Fecha pasada o inválida, faltan campos, `type` distinto de `torneo`/`clinica`, cupo menor a 1 o precio negativo |
+| `400` | Fecha pasada o inválida, faltan campos, categoría inexistente, `capacity` menor a 1 o `price` negativo |
 
-### `PUT /api/events/:eid` y `PATCH /api/events/:eid/cancel`
+### `GET /api/events/:id`
 
-Requieren sesión, rol `organizer` o `admin` y ser el **dueño** del evento (el admin puede cualquiera). `PUT` modifica solo `name`, `description`, `type`, `date`, `place`, `capacity`, `price` y `category`.
+Público. Devuelve el evento con el nombre de la categoría y del organizador.
 
 | Código | Cuándo |
 | --- | --- |
-| `200` | Modificado / cancelado |
+| `200` | El evento existe y no es un borrador |
+| `404` | El evento no existe o es un borrador: `"Evento no encontrado"` |
+| `400` | El id no tiene formato válido: `"El id no tiene un formato válido"` |
+
+### `PUT /api/events/:id`
+
+Requiere sesión, rol `organizer` o `admin` y ser el **dueño** del evento (el admin puede cualquiera). Modifica solo `title`, `description`, `category`, `date`, `location`, `capacity` y `price`, con las mismas validaciones que al crear.
+
+| Código | Cuándo |
+| --- | --- |
+| `200` | Modificado |
 | `401` | Sin sesión |
 | `403` | Rol `user`, o `organizer` que no es el dueño del evento: `"No tenés permisos para modificar este evento"` |
 | `404` | El evento no existe |
-| `409` | El evento ya está cancelado (no se modifica ni se vuelve a cancelar) |
+| `409` | El evento está cancelado o finalizado |
 | `400` | Sin campos válidos, fecha pasada o datos inválidos |
+
+### `PATCH /api/events/:id/status`
+
+Mismos permisos que `PUT`. Body: `{ "status": "published" }` o `{ "status": "cancelled" }`. Cancelar cambia el estado: el evento **no se elimina**.
+
+| Código | Cuándo |
+| --- | --- |
+| `200` | `"Estado actualizado a published"` (o `cancelled`) |
+| `400` | Falta `status`, valor inválido, `finished` a mano, o publicar un evento cuya fecha ya pasó |
+| `409` | El evento está cancelado o finalizado, ya tiene ese estado, o el cambio no está permitido (por ejemplo `published` → `draft`) |
+| `401` / `403` / `404` | Igual que en `PUT` |
+
+### `GET /api/categories` y `POST /api/categories`
+
+`GET` es público y devuelve `{ id, name, description }` de cada categoría. `POST` es solo para `admin`, con body `{ "name": "workshop", "description": "Workshops técnicos" }` → `201`. El nombre se guarda en minúsculas; un nombre repetido (sin importar mayúsculas) responde `409 La categoría ya existe`.
 
 ### `GET /api/users` y `PATCH /api/users/:uid/role` (solo admin)
 
@@ -407,12 +528,6 @@ Borra la cookie `currentUser`. Response `200`:
 { "status": "ok", "message": "Servidor activo" }
 ```
 
-`GET /api/events` → `200` (solo eventos activos)
-
-```json
-{ "status": "success", "payload": [ { "id": "6690...", "name": "Torneo Apertura Sub 16", "status": "active", "...": "..." } ] }
-```
-
 Ruta inexistente → `404`
 
 ```json
@@ -442,17 +557,28 @@ Con un usuario de cada rol (el primer admin se crea como se explica en "Crear el
 5. Con otro `organizer` → **PUT** `/api/events/<id del evento del primero>` → `403`.
 6. Sin cookie (después del logout) → cualquier ruta privada → `401`.
 
+### Probar eventos
+
+1. Como `admin` → **POST** `/api/categories` con `{ "name": "workshop" }` → `201` (y lo mismo para `torneo` y `clinica`).
+2. Como `organizer` → **POST** `/api/events` con el body de ejemplo → `201` con `status: "draft"`. Con `"date": "2020-01-01"` → `400`; con `"capacity": 0` → `400`.
+3. **PATCH** `/api/events/<id>/status` con `{ "status": "published" }` → `200`. Ahora aparece en **GET** `/api/events/<id>`.
+4. Con otro `organizer` → **PUT** `/api/events/<id>` → `403`. Como `admin` → `200`.
+5. **PATCH** `/api/events/<id>/status` con `{ "status": "cancelled" }` → `200`; volver a cambiarle el estado → `409`.
+6. **GET** `/api/events?status=published&category=workshop&page=2&limit=5` → `200` con `data`, `page`, `limit`, `total` y `totalPages`.
+7. **GET** `/api/events/507f1f77bcf86cd799439011` (id que no existe) → `404`.
+
 ## Tests automatizados
 
 ```bash
 npm test
 ```
 
-37 tests con `node:test` (incluido en Node, sin dependencias extra). No necesitan MongoDB: las estrategias, los middlewares y los services reciben **repositorios falsos en memoria**, aprovechando la inyección de dependencias.
+64 tests con `node:test` (incluido en Node, sin dependencias extra). No necesitan MongoDB: las estrategias, los middlewares y los services reciben **repositorios falsos en memoria**, aprovechando la inyección de dependencias.
 
 | Archivo | Qué prueba |
 | --- | --- |
-| `tests/authorization.test.js` | **Matriz** (y que no se pueda modificar en tiempo de ejecución). **authorizeRoles:** 401 sin sesión, 403 sin permiso, rutas admin solo para admin, fail closed sin roles. **Propiedad:** dueño, organizer ajeno 403, admin, 404, 401 y errores de la base. **Eventos:** organizer de la sesión, fecha futura, cancelado no se modifica, listado de activos. **Usuarios:** sin contraseñas, rol inválido 400, propio rol 409, inexistente 404 |
+| `tests/authorization.test.js` | **Matriz** (y que no se pueda modificar en tiempo de ejecución). **authorizeRoles:** 401 sin sesión, 403 sin permiso, rutas admin solo para admin, fail closed sin roles. **Propiedad:** dueño, organizer ajeno 403, admin, 404, 401 y errores de la base. **Eventos:** organizer de la sesión, fecha futura, cancelado no se modifica, borradores fuera del listado. **Usuarios:** sin contraseñas, rol inválido 400, propio rol 409, inexistente 404 |
+| `tests/events.test.js` | **Crear:** nace `draft` con el organizer de la sesión, categoría por nombre o id, fecha pasada o inválida, `capacity` 0 / negativa / decimal / texto, precio negativo, campos faltantes. **Editar:** campos permitidos, cancelado y finalizado 409. **Estados:** transiciones válidas, cancelado no cambia, no se publica finalizado ni vencido, tabla congelada. **Listado:** el caso de la consigna (`status`, `category`, `page=2`, `limit=5`), valores por defecto, `location` parcial y escapada, rango de fechas, `sort`, tope de `limit` y query params inválidos. **Detalle:** populate sin email, 404. **Categorías:** minúsculas, vacía 400, duplicada 409 |
 | `tests/passport.strategies.test.js` | **register:** éxito sin contraseña en la respuesta, hash bcrypt, rol ignorado, duplicado (409), campos faltantes, inválidos o de solo espacios (400). **login:** éxito con `{ id, email, role }` y el mismo 401 para email inexistente y contraseña incorrecta. **current:** token válido, sin cookie, alterado, mal formado, vencido, de otra clave, sin firma (`alg: none`) y usuario inexistente |
 | `tests/jwt.test.js` | Helper de JWT: payload, expiración y token alterado |
 
