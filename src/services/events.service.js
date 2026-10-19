@@ -2,6 +2,7 @@ import { eventsRepository } from "../repositories/events.repository.js";
 import { categoriesRepository } from "../repositories/categories.repository.js";
 import { EVENT_STATUS, EVENT_STATUS_VALUES, STATUS_TRANSITIONS } from "../config/event-status.js";
 import { AppError } from "../utils/errors.js";
+import { toPublicRef } from "../utils/public-ref.js";
 
 // Campos que se toman del body: organizer y status nunca los decide el cliente
 const EVENT_FIELDS = ["title", "description", "category", "date", "location", "capacity", "price"];
@@ -129,16 +130,6 @@ function parseDateParam(value, name, { endOfDay = false } = {}) {
 // El texto del usuario se escapa para que se busque literal y no se interprete como expresión regular
 function escapeRegex(text) {
     return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-// Con populate la referencia llega como objeto con sus campos; sin populate es solo el id
-function toPublicRef(value, fields) {
-    const isPopulated = value !== null && typeof value === "object" && fields.some(field => field in value);
-    if (!isPopulated) {
-        return value;
-    }
-
-    return { id: value._id, ...Object.fromEntries(fields.map(field => [field, value[field]])) };
 }
 
 // Un evento publicado cuya fecha ya pasó está finalizado, aunque la base todavía diga published
