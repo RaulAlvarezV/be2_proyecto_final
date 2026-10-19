@@ -32,8 +32,12 @@ export async function cancelTicket(req, res, next) {
 // Ya pasó por auth: req.user es el usuario que se inscribe. Body opcional: { "quantity": 2 }
 export async function createTicket(req, res, next) {
     try {
-        const ticket = await ticketsService.create(req.params.eid, req.body?.quantity, req.user);
-        res.status(201).json({ status: "success", message: "Inscripción confirmada", payload: ticket });
+        const { ticket, emailSent } = await ticketsService.create(req.params.eid, req.body?.quantity, req.user);
+        const message = emailSent
+            ? "Inscripción confirmada. Te enviamos un email con el código de reserva"
+            : "Inscripción confirmada. No se pudo enviar el email de confirmación";
+
+        res.status(201).json({ status: "success", message, payload: ticket, emailSent });
     } catch (error) {
         next(error);
     }

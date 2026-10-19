@@ -1,4 +1,5 @@
 import { ticketsRepository } from "../repositories/tickets.repository.js";
+import { mailService } from "./mail.service.js";
 import { eventsRepository } from "../repositories/events.repository.js";
 import { EVENT_STATUS } from "../config/event-status.js";
 import { TICKET_STATUS } from "../config/ticket-status.js";
@@ -29,9 +30,28 @@ function validateQuantity(value) {
 }
 
 export class TicketsService {
-    constructor(repository, eventsRepository) {
+    constructor(repository, eventsRepository, mailer) {
         this.repository = repository;
         this.eventsRepository = eventsRepository;
+        this.mailer = mailer;
+    }
+
+    // La operación principal es el ticket; el email es una notificación. Si falla, la inscripción sigue siendo válida:
+    // el error queda en la consola del servidor y la respuesta avisa que no se pudo enviar
+    async notifyConfirmation(email, event, ticket) {
+        try {
+            return await this.mailer.sendTicketConfirmation({
+                to: email,
+                eventTitle: event.title,
+                eventDate: event.date,
+                eventLocation: event.location,
+                quantity: ticket.quantity,
+                reservationCode: ticket.reservationCode
+            });
+        } catch (error) {
+            console.error("No se pudo enviar el email de confirmación:", error.message);
+            return false;
+        }
     }
 
     // El ticket se crea con un código de reserva aleatorio. Si justo se repite (muy poco probable),
@@ -112,7 +132,9 @@ export class TicketsService {
             status: TICKET_STATUS.CONFIRMED
         });
 
-        return toPublicTicket(ticket);
+        const emailSent = await this.notifyConfirmation(user.email, event, ticket);
+
+        return { ticket: toPublicTicket(ticket), emailSent };
     }
 
     // El permiso (dueño del ticket o admin) ya lo validó authorizeTicketOwnerOrAdmin.
@@ -136,4 +158,4 @@ export class TicketsService {
     }
 }
 
-export const ticketsService = new TicketsService(ticketsRepository, eventsRepository);
+export const ticketsService = new TicketsService(ticketsRepository, eventsRepository, mailService);
