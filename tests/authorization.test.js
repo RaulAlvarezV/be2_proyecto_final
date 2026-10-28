@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 process.env.JWT_SECRET ||= "clave-solo-para-los-tests-de-autorizacion";
 const { ROLES, PERMISSIONS } = await import("../src/config/permissions.js");
 const { authorizeRoles, createEventOwnershipMiddleware } = await import("../src/middlewares/authorize.middleware.js");
+const { errorHandler } = await import("../src/middlewares/error.middleware.js");
 const { EventsService } = await import("../src/services/events.service.js");
 const { UsersService } = await import("../src/services/users.service.js");
 
@@ -16,7 +17,8 @@ function run(middleware, req) {
             status(code) { this.statusCode = code; return this; },
             json(data) { this.body = data; resolve({ req, res, nextCalled: false }); return this; }
         };
-        middleware(req, res, error => resolve({ req, res, nextCalled: true, error }));
+        // Como Express: next() sin error sigue al controller; next(error) lo responde el manejador global
+        middleware(req, res, error => error ? errorHandler(error, req, res, () => {}) : resolve({ req, res, nextCalled: true }));
     });
 }
 
@@ -121,10 +123,12 @@ describe("authorizeEventOwnerOrAdmin", () => {
 
     test("un error de la base pasa al manejador global", async () => {
         const failing = createEventOwnershipMiddleware({ async getById() { throw new Error("db caída"); } });
-        const { nextCalled, error } = await run(failing, { user: organizer, params: { id: "ev1" } });
+        const { res, nextCalled } = await run(failing, { user: organizer, params: { id: "ev1" } });
 
-        assert.equal(nextCalled, true);
-        assert.equal(error.message, "db caída");
+        // El detalle queda en la consola del servidor; al cliente le llega un 500 genérico
+        assert.equal(nextCalled, false);
+        assert.equal(res.statusCode, 500);
+        assert.equal(res.body.message, "Error interno del servidor");
     });
 });
 

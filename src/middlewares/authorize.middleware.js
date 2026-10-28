@@ -1,4 +1,5 @@
 import { ROLES } from "../config/permissions.js";
+import { AppError } from "../utils/errors.js";
 import { eventsRepository } from "../repositories/events.repository.js";
 import { ticketsRepository } from "../repositories/tickets.repository.js";
 
@@ -6,16 +7,17 @@ import { ticketsRepository } from "../repositories/tickets.repository.js";
  * Autorización por rol: recibe los roles permitidos y compara contra req.user.role.
  * Va siempre después de auth (que carga req.user), por eso el orden en la ruta es auth → authorizeRoles → controller.
  * 401 si no hay usuario autenticado; 403 si está autenticado pero su rol no tiene permiso.
+ * Los errores se pasan con next(): el manejador global arma la respuesta, igual que para el resto de la API.
  * Fail closed: si no se indica ningún rol permitido, nadie pasa.
  */
 export function authorizeRoles(...allowedRoles) {
-    return function (req, res, next) {
+    return function (req, _res, next) {
         if (!req.user) {
-            return res.status(401).json({ status: "error", message: "No autenticado" });
+            return next(new AppError("No autenticado", 401));
         }
 
         if (!allowedRoles.includes(req.user.role)) {
-            return res.status(403).json({ status: "error", message: "No tenés permisos para realizar esta acción" });
+            return next(new AppError("No tenés permisos para realizar esta acción", 403));
         }
 
         next();
@@ -29,16 +31,16 @@ export function authorizeRoles(...allowedRoles) {
  * param indica de qué parámetro de la ruta sale el id (/:id o /:eid/tickets) y forbiddenMessage el texto del 403.
  */
 export function createEventOwnershipMiddleware(repository, { param = "id", forbiddenMessage = "No tenés permisos para modificar este evento" } = {}) {
-    return async function (req, res, next) {
+    return async function (req, _res, next) {
         try {
             if (!req.user) {
-                return res.status(401).json({ status: "error", message: "No autenticado" });
+                return next(new AppError("No autenticado", 401));
             }
 
             // Un id mal formado lanza CastError, que el manejador global responde con 400
             const event = await repository.getById(req.params[param]);
             if (!event) {
-                return res.status(404).json({ status: "error", message: "Evento no encontrado" });
+                return next(new AppError("Evento no encontrado", 404));
             }
 
             // El admin se evalúa primero porque tiene permisos globales: no depende de ser el dueño.
@@ -47,7 +49,7 @@ export function createEventOwnershipMiddleware(repository, { param = "id", forbi
             const isOwner = event.organizer != null && String(event.organizer) === String(req.user.id);
 
             if (!isAdmin && !isOwner) {
-                return res.status(403).json({ status: "error", message: forbiddenMessage });
+                return next(new AppError(forbiddenMessage, 403));
             }
 
             req.event = event;
@@ -71,15 +73,15 @@ export const authorizeEventTicketsAccess = createEventOwnershipMiddleware(events
  * Deja el ticket en req.ticket. Recibe el repository para poder probarlo sin MongoDB.
  */
 export function createTicketOwnershipMiddleware(repository) {
-    return async function (req, res, next) {
+    return async function (req, _res, next) {
         try {
             if (!req.user) {
-                return res.status(401).json({ status: "error", message: "No autenticado" });
+                return next(new AppError("No autenticado", 401));
             }
 
             const ticket = await repository.getById(req.params.tid);
             if (!ticket) {
-                return res.status(404).json({ status: "error", message: "Ticket no encontrado" });
+                return next(new AppError("Ticket no encontrado", 404));
             }
 
             // Igual que con los eventos: el admin primero (permiso global), después el dueño
@@ -87,7 +89,7 @@ export function createTicketOwnershipMiddleware(repository) {
             const isOwner = String(ticket.user) === String(req.user.id);
 
             if (!isAdmin && !isOwner) {
-                return res.status(403).json({ status: "error", message: "No tenés permisos para cancelar este ticket" });
+                return next(new AppError("No tenés permisos para cancelar este ticket", 403));
             }
 
             req.ticket = ticket;

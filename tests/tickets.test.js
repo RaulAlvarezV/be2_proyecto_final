@@ -10,6 +10,7 @@ const { EventsService } = await import("../src/services/events.service.js");
 const { MailService } = await import("../src/services/mail.service.js");
 const { ticketsRepository } = await import("../src/repositories/tickets.repository.js");
 const { createTicketOwnershipMiddleware, createEventOwnershipMiddleware } = await import("../src/middlewares/authorize.middleware.js");
+const { errorHandler } = await import("../src/middlewares/error.middleware.js");
 
 const DAY = 24 * 3600 * 1000;
 const futureDate = () => new Date(Date.now() + 7 * DAY);
@@ -86,7 +87,8 @@ function run(middleware, req) {
             status(code) { this.statusCode = code; return this; },
             json(data) { this.body = data; resolve({ req, res, nextCalled: false }); return this; }
         };
-        middleware(req, res, error => resolve({ req, res, nextCalled: true, error }));
+        // Como Express: next() sin error sigue al controller; next(error) lo responde el manejador global
+        middleware(req, res, error => error ? errorHandler(error, req, res, () => {}) : resolve({ req, res, nextCalled: true }));
     });
 }
 

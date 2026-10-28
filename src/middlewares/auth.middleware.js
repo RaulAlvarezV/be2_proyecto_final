@@ -1,4 +1,5 @@
 import passport from "passport";
+import { AppError } from "../utils/errors.js";
 
 // Mensaje para el cliente cuando falla la autenticación, sin exponer detalles internos
 function failureMessage(info) {
@@ -14,7 +15,7 @@ function failureMessage(info) {
 }
 
 /**
- * Ejecuta una estrategia de Passport y responde en JSON si la autenticación falla.
+ * Ejecuta una estrategia de Passport y, si la autenticación falla, pasa el error al manejador global.
  * Con passport.authenticate a secas, cualquier fallo responde 401; acá se respeta el status
  * que indica la estrategia (400 datos inválidos, 409 email duplicado) para no cambiar el contrato de la API.
  * missingMessage: mensaje si faltan email o password (passport-local corta antes de llegar a la estrategia)
@@ -25,7 +26,7 @@ export function passportCall(strategy, { missingMessage = "Faltan campos obligat
             if (error) return next(error);
 
             if (!user) {
-                return res.status(info?.status || status || 401).json({ status: "error", message: failureMessage(info) });
+                return next(new AppError(failureMessage(info), info?.status || status || 401));
             }
 
             req.user = user;

@@ -5,6 +5,7 @@ import jwt from "jsonwebtoken";
 process.env.JWT_SECRET ||= "clave-solo-para-los-tests-de-passport";
 const { initializePassport } = await import("../src/config/passport.config.js");
 const { passportCall, auth } = await import("../src/middlewares/auth.middleware.js");
+const { errorHandler } = await import("../src/middlewares/error.middleware.js");
 const { generateToken } = await import("../src/utils/jwt.js");
 
 // Repository falso en memoria: las estrategias no saben si atrás hay MongoDB o un array
@@ -36,7 +37,8 @@ function run(middleware, { body = {}, cookies = {} } = {}) {
             status(code) { this.statusCode = code; return this; },
             json(data) { this.body = data; resolve({ req, res, nextCalled: false }); return this; }
         };
-        middleware(req, res, error => resolve({ req, res, nextCalled: true, error }));
+        // Como Express: next() sin error sigue al controller; next(error) lo responde el manejador global
+        middleware(req, res, error => error ? errorHandler(error, req, res, () => {}) : resolve({ req, res, nextCalled: true }));
     });
 }
 
