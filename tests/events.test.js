@@ -356,7 +356,7 @@ describe("Categorías (CategoriesService)", () => {
 
         const category = await service.create({ name: "  Workshop " });
 
-        assert.deepEqual(category, { id: "cat2", name: "workshop", description: undefined });
+        assert.deepEqual({ ...category }, { id: "cat2", name: "workshop", description: undefined });
     });
 
     test("rechaza nombre vacío (400) y duplicado sin importar mayúsculas (409)", async () => {

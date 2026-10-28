@@ -3,7 +3,7 @@ import { categoriesRepository } from "../repositories/categories.repository.js";
 import { ticketsRepository } from "../repositories/tickets.repository.js";
 import { EVENT_STATUS, EVENT_STATUS_VALUES, STATUS_TRANSITIONS } from "../config/event-status.js";
 import { AppError } from "../utils/errors.js";
-import { toPublicRef } from "../utils/public-ref.js";
+import { EventDTO } from "../dto/event.dto.js";
 
 // Campos que se toman del body: organizer y status nunca los decide el cliente
 const EVENT_FIELDS = ["title", "description", "category", "date", "location", "capacity", "price"];
@@ -143,22 +143,6 @@ export function currentStatus(event) {
     return event.status;
 }
 
-// Datos que devuelve la API (id en lugar de _id, sin campos internos)
-function toPublicEvent(event) {
-    return {
-        id: event._id,
-        title: event.title,
-        description: event.description,
-        category: toPublicRef(event.category, ["name"]),
-        date: event.date,
-        location: event.location,
-        capacity: event.capacity,
-        price: event.price,
-        status: event.status,
-        organizer: toPublicRef(event.organizer, ["first_name", "last_name"])
-    };
-}
-
 export class EventsService {
     constructor(repository, categoriesRepository, ticketsRepository) {
         this.repository = repository;
@@ -287,7 +271,7 @@ export class EventsService {
         const { docs, total } = await this.repository.getPage(filter, { skip: (page - 1) * limit, limit, sort });
 
         return {
-            data: docs.map(toPublicEvent),
+            data: docs.map(event => new EventDTO(event)),
             page,
             limit,
             total,
@@ -305,7 +289,7 @@ export class EventsService {
             throw new AppError("Evento no encontrado", 404);
         }
 
-        return toPublicEvent(event);
+        return new EventDTO(event);
     }
 
     async create(data, organizerId) {
@@ -318,7 +302,7 @@ export class EventsService {
             status: EVENT_STATUS.DRAFT
         });
 
-        return toPublicEvent(newEvent);
+        return new EventDTO(newEvent);
     }
 
     // El permiso (dueño o admin) ya lo validó authorizeEventOwnerOrAdmin; acá van las reglas del evento
@@ -347,7 +331,7 @@ export class EventsService {
         }
 
         const updatedEvent = await this.repository.update(event._id, eventData);
-        return toPublicEvent(updatedEvent);
+        return new EventDTO(updatedEvent);
     }
 
     // Cancelar es un cambio de estado más (status: cancelled): el evento nunca se borra de la base
@@ -395,7 +379,7 @@ export class EventsService {
             await this.ticketsRepository.cancelActiveByEvent(event._id);
         }
 
-        return toPublicEvent(updatedEvent);
+        return new EventDTO(updatedEvent);
     }
 }
 

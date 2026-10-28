@@ -1,14 +1,6 @@
 import { categoriesRepository } from "../repositories/categories.repository.js";
+import { CategoryDTO } from "../dto/category.dto.js";
 import { AppError } from "../utils/errors.js";
-
-// Datos que devuelve la API (id en lugar de _id)
-export function toPublicCategory(category) {
-    return {
-        id: category._id,
-        name: category.name,
-        description: category.description
-    };
-}
 
 export class CategoriesService {
     constructor(repository) {
@@ -17,7 +9,7 @@ export class CategoriesService {
 
     async getAll() {
         const categories = await this.repository.getAll();
-        return categories.map(toPublicCategory);
+        return categories.map(category => new CategoryDTO(category));
     }
 
     async create(data = {}) {
@@ -41,7 +33,7 @@ export class CategoriesService {
         }
 
         const newCategory = await this.repository.create({ name: normalizedName, description });
-        return toPublicCategory(newCategory);
+        return new CategoryDTO(newCategory);
     }
 }
 
