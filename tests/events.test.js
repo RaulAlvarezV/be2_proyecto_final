@@ -22,7 +22,7 @@ const categoriesRepository = {
     }
 };
 
-// Repository falso de tickets: sin lugares reservados y registra las cancelaciones en cascada
+// Repository falso de tickets: registra las cancelaciones en cascada
 const ticketsRepository = {
     cancelledEvents: [],
     async cancelActiveByEvent(eventId) { this.cancelledEvents.push(eventId); return { modifiedCount: 1 }; }

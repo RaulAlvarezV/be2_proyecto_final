@@ -9,6 +9,7 @@ const { TicketsService } = await import("../src/services/tickets.service.js");
 const { EventsService } = await import("../src/services/events.service.js");
 const { MailService } = await import("../src/services/mail.service.js");
 const { ticketsRepository } = await import("../src/repositories/tickets.repository.js");
+const { eventsRepository } = await import("../src/repositories/events.repository.js");
 const { createTicketOwnershipMiddleware, createEventOwnershipMiddleware } = await import("../src/middlewares/authorize.middleware.js");
 const { errorHandler } = await import("../src/middlewares/error.middleware.js");
 
@@ -362,10 +363,131 @@ describe("Consistencia entre eventos y tickets (EventsService)", () => {
 
         assert.deepEqual(tickets.cancelledEvents, ["ev1"]);
     });
+
+    test("al cancelar el evento el contador de lugares queda en cero", async () => {
+        const { service, events } = createEventsService(6);
+
+        await service.changeStatus(events[0], EVENT_STATUS.CANCELLED);
+
+        assert.equal(events[0].reservedSeats, 0);
+    });
+});
+
+describe("Reserva atómica del cupo", () => {
+    test("el cupo se reserva en el evento antes de crear el ticket", async () => {
+        const { service, events } = createService();
+
+        await service.create("ev1", 2, player);
+
+        assert.equal(events.events[0].reservedSeats, 2);
+    });
+
+    test("si no se puede reservar, no se crea el ticket", async () => {
+        const { service, tickets, events } = createService({ events: createFakeEvents([publishedEvent({ reservedSeats: 3 })]) });
+
+        await assert.rejects(service.create("ev1", 1, player), { status: 409, message: "No hay cupos suficientes: el evento no tiene lugares disponibles" });
+        assert.equal(tickets.tickets.length, 0);
+        assert.equal(events.events[0].reservedSeats, 3);
+    });
+
+    test("si el ticket no se puede crear, los lugares reservados se devuelven (compensación)", async () => {
+        const tickets = createFakeTickets();
+        tickets.create = async () => {
+            throw Object.assign(new Error("duplicado"), { code: 11000, keyPattern: { user: 1, event: 1 } });
+        };
+        const { service, events } = createService({ tickets });
+
+        await assert.rejects(service.create("ev1", 2, player), { code: 11000 });
+        assert.equal(events.events[0].reservedSeats, 0);
+    });
+
+    test("si la reserva falla porque el evento se canceló en el medio, responde ese motivo", async () => {
+        const events = createFakeEvents();
+        events.reserveSeats = async () => {
+            events.events[0].status = EVENT_STATUS.CANCELLED;
+            return null;
+        };
+        const { service } = createService({ events });
+
+        await assert.rejects(service.create("ev1", 1, player), { status: 409, message: "El evento está cancelado: no admite inscripciones" });
+    });
+
+    test("si alguien libera lugar mientras tanto, se reintenta la reserva una vez", async () => {
+        const events = createFakeEvents();
+        const realReserve = events.reserveSeats;
+        let calls = 0;
+        events.reserveSeats = async function (...args) {
+            calls += 1;
+            return calls === 1 ? null : realReserve.apply(this, args);
+        };
+        const { service } = createService({ events });
+
+        const { ticket } = await service.create("ev1", 1, player);
+
+        assert.equal(calls, 2);
+        assert.equal(ticket.status, TICKET_STATUS.CONFIRMED);
+    });
+
+    test("cancelar devuelve los lugares del ticket una sola vez", async () => {
+        const { service, tickets, events } = createService();
+        await service.create("ev1", 2, player);
+        const ticket = tickets.tickets[0];
+
+        await service.cancel({ ...ticket });
+        // Segundo pedido simultáneo: todavía ve el ticket activo, pero la cancelación condicionada ya no lo encuentra
+        await assert.rejects(service.cancel({ ...ticket, status: TICKET_STATUS.CONFIRMED }), { status: 409, message: "El ticket ya está cancelado" });
+
+        assert.equal(events.events[0].reservedSeats, 0);
+    });
+});
+
+describe("EventsRepository (consultas atómicas)", () => {
+    const EventsRepository = eventsRepository.constructor;
+
+    test("la reserva va en una sola operación condicionada: publicado, fecha futura y cupo con $ifNull", async () => {
+        let received;
+        const repository = new EventsRepository({ async findOneAndUpdate(filter, update) { received = { filter, update }; return null; } });
+        const now = new Date();
+
+        await repository.reserveSeats("ev1", 3, now);
+
+        assert.equal(received.filter.status, EVENT_STATUS.PUBLISHED);
+        assert.deepEqual(received.filter.date, { $gt: now });
+        assert.deepEqual(received.filter.$expr, { $lte: [{ $add: [{ $ifNull: ["$reservedSeats", 0] }, 3] }, "$capacity"] });
+        assert.deepEqual(received.update, { $inc: { reservedSeats: 3 } });
+    });
+
+    test("liberar lugares nunca deja el contador negativo", async () => {
+        let received;
+        const repository = new EventsRepository({ async findOneAndUpdatePipeline(filter, pipeline) { received = pipeline; return null; } });
+
+        await repository.releaseSeats("ev1", 2);
+
+        assert.deepEqual(received, [{ $set: { reservedSeats: { $max: [0, { $subtract: [{ $ifNull: ["$reservedSeats", 0] }, 2] }] } } }]);
+    });
+
+    test("la capacidad nueva se guarda solo si alcanza para los reservados", async () => {
+        let received;
+        const repository = new EventsRepository({ async findOneAndUpdate(filter) { received = filter; return null; } });
+
+        await repository.updateIfCapacityFits("ev1", { capacity: 8 });
+
+        assert.deepEqual(received.$expr, { $gte: [8, { $ifNull: ["$reservedSeats", 0] }] });
+    });
 });
 
 describe("TicketsRepository", () => {
     const TicketsRepository = ticketsRepository.constructor;
+
+    test("la cancelación está condicionada a que el ticket siga activo", async () => {
+        let received;
+        const repository = new TicketsRepository({ async findOneAndUpdate(filter, data) { received = { filter, data }; return null; } });
+
+        await repository.cancelTicket("t1");
+
+        assert.deepEqual(received.filter, { _id: "t1", status: { $in: [...ACTIVE_TICKET_STATUS] } });
+        assert.equal(received.data.status, TICKET_STATUS.CANCELLED);
+    });
 
     test("el cupo ocupado suma solo los tickets activos", async () => {
         let received;
