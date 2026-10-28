@@ -4,7 +4,7 @@ import { eventsRepository } from "../repositories/events.repository.js";
 import { EVENT_STATUS } from "../config/event-status.js";
 import { TICKET_STATUS } from "../config/ticket-status.js";
 import { currentStatus } from "./events.service.js";
-import { toPublicTicket } from "../dto/ticket.dto.js";
+import { TicketDTO } from "../dto/ticket.dto.js";
 import { generateReservationCode } from "../utils/reservation-code.js";
 import { AppError } from "../utils/errors.js";
 
@@ -72,7 +72,7 @@ export class TicketsService {
     // Solo los tickets del usuario logueado: el id sale de la sesión, así nadie puede pedir los de otro
     async getMine(userId) {
         const tickets = await this.repository.getByUser(userId);
-        return tickets.map(toPublicTicket);
+        return tickets.map(ticket => new TicketDTO(ticket));
     }
 
     // El permiso (organizer dueño o admin) ya lo validó authorizeEventTicketsAccess, que deja el evento en req.event.
@@ -85,7 +85,7 @@ export class TicketsService {
 
         return {
             summary: { capacity: event.capacity, reserved, available: event.capacity - reserved },
-            tickets: tickets.map(toPublicTicket)
+            tickets: tickets.map(ticket => new TicketDTO(ticket))
         };
     }
 
@@ -134,7 +134,7 @@ export class TicketsService {
 
         const emailSent = await this.notifyConfirmation(user.email, event, ticket);
 
-        return { ticket: toPublicTicket(ticket), emailSent };
+        return { ticket: new TicketDTO(ticket), emailSent };
     }
 
     // El permiso (dueño del ticket o admin) ya lo validó authorizeTicketOwnerOrAdmin.
@@ -154,7 +154,7 @@ export class TicketsService {
             cancelledAt: new Date()
         });
 
-        return toPublicTicket(cancelledTicket);
+        return new TicketDTO(cancelledTicket);
     }
 }
 
