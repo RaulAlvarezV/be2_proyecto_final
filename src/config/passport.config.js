@@ -6,7 +6,7 @@ import { COOKIE_NAME } from "./cookie.js";
 import { ROLES } from "./permissions.js";
 import { usersRepository } from "../repositories/users.repository.js";
 import { createHash, isValidPassword } from "../utils/hash.js";
-import { toPublicUser } from "../dto/user.dto.js";
+import { UserDTO } from "../dto/user.dto.js";
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MIN_PASSWORD_LENGTH = 8;
@@ -66,7 +66,8 @@ function registerStrategy(repository) {
                     role: ROLES.USER
                 });
 
-                return done(null, toPublicUser(newUser));
+                // A req.user llega el usuario ya pasado por el DTO: la contraseña no sale de la estrategia
+                return done(null, new UserDTO(newUser));
             } catch (error) {
                 return done(error);
             }

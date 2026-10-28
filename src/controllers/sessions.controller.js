@@ -1,7 +1,8 @@
 import { generateToken } from "../utils/jwt.js";
 import { COOKIE_NAME, cookieOptions } from "../config/cookie.js";
+import { CurrentUserDTO } from "../dto/user.dto.js";
 
-// La estrategia register de Passport ya validó y creó el usuario: queda en req.user (sin contraseña)
+// La estrategia register de Passport ya validó y creó el usuario: queda en req.user como UserDTO (sin contraseña)
 export function register(req, res) {
     res.status(201).json({ status: "success", payload: req.user });
 }
@@ -15,9 +16,9 @@ export function login(req, res) {
     res.status(200).json({ status: "success", message: "Login correcto" });
 }
 
-// req.user lo carga el middleware auth: solo id, email y role (nunca la contraseña)
+// req.user lo carga el middleware auth; la respuesta sale por el DTO del usuario autenticado (id, email y role)
 export function current(req, res) {
-    res.status(200).json({ status: "success", payload: req.user });
+    res.status(200).json({ status: "success", payload: new CurrentUserDTO(req.user) });
 }
 
 // Borra la cookie con las mismas opciones con las que se creó (sin maxAge)

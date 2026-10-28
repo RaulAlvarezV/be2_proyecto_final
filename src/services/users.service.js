@@ -1,6 +1,6 @@
 import { usersRepository } from "../repositories/users.repository.js";
 import { ROLE_VALUES } from "../config/permissions.js";
-import { toPublicUser } from "../dto/user.dto.js";
+import { UserDTO } from "../dto/user.dto.js";
 import { AppError } from "../utils/errors.js";
 
 // El permiso (solo admin) lo validan auth y authorizeRoles en la ruta; acá van las reglas de los usuarios
@@ -11,7 +11,7 @@ export class UsersService {
 
     async getAll() {
         const users = await this.repository.getAll();
-        return users.map(toPublicUser);
+        return users.map(user => new UserDTO(user));
     }
 
     async changeRole(userId, role, currentUser) {
@@ -30,7 +30,7 @@ export class UsersService {
         }
 
         const updatedUser = await this.repository.updateRole(userId, role);
-        return toPublicUser(updatedUser);
+        return new UserDTO(updatedUser);
     }
 }
 
