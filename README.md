@@ -2,7 +2,7 @@
 
 Proyecto final de Backend II (Coderhouse). API REST para gestionar torneos y clínicas de hockey sobre césped: usuarios, eventos, categorías e inscripciones.
 
-Esta versión corresponde a la **Pre-entrega 7**: suma el **flujo de inscripciones con tickets**. Un usuario autenticado se inscribe a un evento publicado, el backend controla **cupos** (solo cuentan los tickets activos), evita **inscripciones duplicadas**, permite **cancelar** sin borrar el ticket (el lugar se libera solo) y envía un **email de confirmación con Nodemailer**. Los eventos mantienen su ciclo de vida, filtros y paginación de la Pre-entrega 6, y los permisos siguen centralizados en middlewares de autorización.
+Esta versión corresponde a la **Pre-entrega 8**: la API quedó organizada en una **arquitectura en capas formal** (routes → middlewares → controllers → services → repositories → DAO → models, con **DTO** para todas las respuestas) sin cambiar su comportamiento externo: las rutas, los permisos y las respuestas son las mismas que en la Pre-entrega 7. Además, aplicando la devolución de esa entrega, la **reserva del cupo es atómica**: dos inscripciones simultáneas ya no pueden superar la capacidad de un evento (ver [Reserva atómica de cupos](#reserva-atómica-de-cupos)).
 
 ## Versiones por entrega
 
@@ -17,6 +17,7 @@ Cada pre-entrega quedó en su propia rama, así se puede revisar el código tal 
 | Pre-entrega 5 | [`pre-entrega-5`](https://github.com/RaulAlvarezV/be2_proyecto_final/tree/pre-entrega-5) | Roles y autorización: matriz de permisos, `authorizeRoles`, propiedad de eventos y rutas de administración |
 | Pre-entrega 6 | [`pre-entrega-6`](https://github.com/RaulAlvarezV/be2_proyecto_final/tree/pre-entrega-6) | Entidad Event con estados, reglas de negocio en el service, filtros, paginación, orden y categorías |
 | Pre-entrega 7 | [`pre-entrega-7`](https://github.com/RaulAlvarezV/be2_proyecto_final/tree/pre-entrega-7) | Tickets: inscripción con control de cupos, duplicados, cancelaciones, inscriptos por evento y email con Nodemailer |
+| Pre-entrega 8 | [`pre-entrega-8`](https://github.com/RaulAlvarezV/be2_proyecto_final/tree/pre-entrega-8) | Arquitectura en capas con DAO, Repository y DTO, errores centralizados y reserva atómica de cupos |
 
 Las capturas de cada entrega están en la sección [Evidencias](#evidencias).
 
@@ -53,6 +54,69 @@ Todo usuario nuevo se registra con rol `user`. El rol nunca se toma del body del
 - Nodemailer (email de confirmación de inscripción)
 - node:test (tests automatizados, incluido en Node)
 - Módulos ESM (`import` / `export`)
+
+## Arquitectura en capas
+
+Cada parte del backend tiene una sola responsabilidad. Una petición baja por las capas y la respuesta vuelve transformada por un DTO:
+
+```
+Request → Route → Middlewares → Controller → Service → Repository → DAO → Model (MongoDB)
+Response ← Controller ← DTO ← Service ← Repository ← DAO ← Model
+```
+
+| Capa | Carpeta | Responsabilidad | No hace |
+| --- | --- | --- | --- |
+| **Routes** | `src/routes/` | Definen los endpoints y el orden de los middlewares | Lógica de negocio |
+| **Middlewares** | `src/middlewares/` | Autenticación (401), autorización por rol y por propiedad (403, 404) y manejo global de errores | Reglas de negocio |
+| **Controllers** | `src/controllers/` | Toman los datos de `req` (body, params, query, user), llaman al service y devuelven la respuesta | Calcular cupos, validar estados ni consultar la base |
+| **Services** | `src/services/` | Toda la lógica de negocio: validaciones, estados, cupos, duplicados, envío de email. Devuelven DTO | Usar modelos o DAO: siempre van por un repository |
+| **Repositories** | `src/repositories/` | Métodos en lenguaje del dominio (`getActiveByUserAndEvent`, `reserveSeats`, `cancelTicket`, `finishPastEvents`) que usan el DAO | Importar modelos ni Mongoose |
+| **DAO** | `src/dao/` | Acceso directo a MongoDB con Mongoose (`find`, `findOneAndUpdate`, `aggregate`, `populate`). **Son los únicos que importan los modelos** | Decidir reglas ni filtrar datos para el cliente |
+| **DTO** | `src/dto/` | Arman la salida de la API con una lista blanca de campos | Validar reglas ni consultar la base |
+| **Models** | `src/models/` | Schemas de Mongoose: la forma del dato | — |
+
+Las reglas de dependencias (quién puede importar a quién) se verifican en cada `npm test` con [`tests/architecture.test.js`](tests/architecture.test.js): si un controller o un service importara un modelo, el test falla.
+
+### DTO
+
+| DTO | Archivo | Se usa en | Qué devuelve |
+| --- | --- | --- | --- |
+| `CurrentUserDTO` | `dto/user.dto.js` | `GET /api/sessions/current` | `id`, `email`, `role` |
+| `UserDTO` | `dto/user.dto.js` | Registro y rutas de `/api/users` | `id`, `first_name`, `last_name`, `email`, `role` |
+| `EventDTO` | `dto/event.dto.js` | Rutas de eventos | Datos del evento, `availableSeats`, la categoría (`id`, `name`) y el organizador (`id`, `first_name`, `last_name`) |
+| `TicketDTO` | `dto/ticket.dto.js` | Rutas de tickets | Datos del ticket, el evento (`title`, `date`, `location`, `status`) y el usuario (`first_name`, `last_name`, `email`) |
+| `CategoryDTO` | `dto/category.dto.js` | Rutas de categorías | `id`, `name`, `description` |
+
+- **Ninguna respuesta incluye `password`**, ni hasheada.
+- Cada DTO arma un **objeto nuevo** con los campos permitidos (lista blanca): no borra campos del documento original, y un campo sensible que se agregue al modelo en el futuro tampoco sale por accidente.
+- Cuando hay `populate`, el DTO también filtra el documento relacionado: aunque la consulta trajera más campos del usuario o del organizador, solo pasan los de la lista.
+
+### Manejo de errores
+
+Hay un único **middleware global de errores** (`middlewares/error.middleware.js`). Los services lanzan `AppError(mensaje, status)` y los middlewares de autenticación y autorización los pasan con `next(error)`, así todas las respuestas de error tienen el mismo formato: `{ "status": "error", "message": "..." }`.
+
+| Código | Cuándo |
+| --- | --- |
+| `400` | Datos inválidos (campos faltantes, formato, JSON mal formado, id mal formado) |
+| `401` | No autenticado (sin cookie o token inválido) |
+| `403` | Autenticado pero sin permisos (rol o propiedad del recurso) |
+| `404` | Recurso o ruta inexistente |
+| `409` | Conflicto con el estado actual (duplicados, sin cupo, evento cancelado o finalizado) |
+| `500` | Error interno: el detalle queda en la consola del servidor y al cliente le llega un mensaje genérico |
+
+### Ejemplo: recorrido de una inscripción
+
+```
+POST /api/events/:eid/tickets
+  → events.router.js           ruta
+  → auth                       401 si no hay sesión
+  → tickets.controller.js      toma eid, quantity y req.user
+  → tickets.service.js         evento publicado, sin duplicado, reserva atómica del cupo, crea el ticket, envía el email
+  → events.repository.js       reserveSeats (condición de cupo + suma de lugares en una sola operación)
+  → tickets.repository.js      getActiveByUserAndEvent, create
+  → events.dao.js / tickets.dao.js → models
+  ← TicketDTO                  respuesta sin datos internos
+```
 
 ## Eventos
 
@@ -174,8 +238,8 @@ El modelo tiene un **índice único parcial** `{ user, event }` que solo aplica 
 2. El evento existe (un borrador cuenta como inexistente) → si no, `404`.
 3. El evento no está cancelado ni finalizado (también cuenta como finalizado uno publicado cuya fecha ya pasó) → si no, `409`.
 4. El usuario no tiene ya un ticket activo para ese evento → si no, `409` "Ya tenés una inscripción activa para este evento".
-5. Hay cupo suficiente → si no, `409` "No hay cupos suficientes: quedan N lugares disponibles".
-6. Se crea el ticket `confirmed` con su código de reserva.
+5. Se **reserva el cupo de forma atómica** (ver abajo) → si no hay lugar, `409` "No hay cupos suficientes: quedan N lugares disponibles".
+6. Se crea el ticket `confirmed` con su código de reserva. Si la creación falla (por ejemplo, un duplicado que llegó al mismo tiempo), los lugares reservados se devuelven.
 7. Se envía el email de confirmación.
 
 ### Regla de cupos
@@ -184,11 +248,49 @@ El modelo tiene un **índice único parcial** `{ user, event }` que solo aplica 
 lugares disponibles = capacity del evento − suma de quantity de los tickets activos (confirmed + pending)
 ```
 
-La suma se hace con un `aggregate` en MongoDB. Los tickets `cancelled` no se cuentan, así que **al cancelar un ticket el lugar se libera solo**, sin tocar el evento. El evento no guarda un contador de inscriptos que pueda quedar desactualizado.
+El evento guarda esa suma en el campo `reservedSeats` (lo actualiza solo el backend) y las respuestas muestran `availableSeats`. Los tickets `cancelled` no cuentan: al cancelar un ticket sus lugares vuelven al cupo.
+
+### Reserva atómica de cupos
+
+**El problema (Pre-entrega 7):** el service leía los lugares ocupados y, en un segundo paso, creaba el ticket. Entre los dos pasos había una ventana: si varias personas pedían el último lugar al mismo tiempo, todas veían "queda 1" y todas quedaban inscriptas. Probado con un script que manda inscripciones simultáneas de usuarios distintos:
+
+| Capacidad | Inscripciones simultáneas | Antes (Pre-entrega 7) | Ahora |
+| --- | --- | --- | --- |
+| 1 | 20 | 18 inscriptos (17 de más) | **1** inscripto, 19 reciben `409` |
+| 5 | 20 | 12 inscriptos (7 de más) | **5** inscriptos, 15 reciben `409` |
+| 7 | 40 | — | **7** inscriptos, 33 reciben `409` |
+
+**La solución:** la condición de cupo y la suma de lugares van en **una sola operación** de MongoDB sobre el documento del evento (`events.repository.js → reserveSeats`):
+
+```javascript
+eventModel.findOneAndUpdate(
+    {
+        _id: id,
+        status: "published",
+        date: { $gt: now },
+        $expr: { $lte: [{ $add: [{ $ifNull: ["$reservedSeats", 0] }, quantity] }, "$capacity"] }
+    },
+    { $inc: { reservedSeats: quantity } }
+)
+```
+
+MongoDB evalúa el filtro y aplica el `$inc` juntos sobre el documento: si dos pedidos llegan a la vez por el último lugar, uno lo toma y el otro ya no cumple la condición (recibe `null` y responde `409`). El `$ifNull` hace que un evento creado antes del contador cuente como 0 reservados: sin él, la suma daría `null`, que en MongoDB es menor que cualquier número, y la condición pasaría siempre.
+
+| Situación | Qué pasa |
+| --- | --- |
+| La reserva sale bien pero el ticket no se puede crear | **Compensación:** se devuelven los lugares (`releaseSeats`) y se responde el error |
+| La reserva falla | Se relee el evento para responder el motivo real (sin cupo, cancelado o finalizado). Si justo se liberó un lugar, se reintenta una vez |
+| Dos cancelaciones simultáneas del mismo ticket | La cancelación está condicionada a que el ticket siga activo: una sola lo cambia y solo esa devuelve los lugares; la otra recibe `409` |
+| Bajar la `capacity` de un evento | El cambio está condicionado a que la capacidad nueva alcance para los reservados, en la misma operación |
+| Cancelar el evento | Se cancelan sus tickets activos y el contador queda en 0 |
+
+**¿Por qué no una transacción?** Las transacciones de MongoDB necesitan un *replica set* (MongoDB Atlas lo tiene, un `mongod` local por defecto no). La actualización condicional sobre un solo documento es atómica en cualquier instalación y alcanza para este caso.
+
+**Sincronizar el contador:** `npm run sync:seats` recalcula `reservedSeats` de todos los eventos a partir de sus tickets activos. Se corre una vez al actualizar una base que tenía eventos de antes del contador, o si alguna vez quedara desfasado (por ejemplo, si el servidor se cayera entre la reserva y la creación del ticket).
 
 ### Cancelación
 
-`PATCH /api/tickets/:tid/cancel` cambia `status` a `cancelled` y registra `cancelledAt`. Lo puede hacer el dueño del ticket o un `admin` (middleware `authorizeTicketOwnerOrAdmin`). No se cancela un ticket ya cancelado (`409`) ni uno de un evento finalizado (`409`).
+`PATCH /api/tickets/:tid/cancel` cambia `status` a `cancelled`, registra `cancelledAt` y devuelve los lugares al cupo del evento. Lo puede hacer el dueño del ticket o un `admin` (middleware `authorizeTicketOwnerOrAdmin`). No se cancela un ticket ya cancelado (`409`) ni uno de un evento finalizado (`409`).
 
 ### Email de confirmación
 
@@ -257,6 +359,8 @@ router.use(auth, authorizeRoles(...PERMISSIONS.MANAGE_USERS)); // todas las ruta
 ```
 
 **autenticación (401) → rol (403) → propiedad (403) → controller**
+
+Los middlewares no arman respuestas: cuando rechazan una petición llaman a `next(new AppError(mensaje, status))` y la respuesta la arma el manejador global de errores, igual que para el resto de la API.
 
 El rol se lee de la base en cada petición (la estrategia `current` busca al usuario por el id del token), así que si un admin cambia el rol de alguien, el cambio aplica en su próxima petición, sin volver a loguearse.
 
@@ -332,6 +436,7 @@ MAIL_FROM="Plataforma de Hockey <no-reply@hockey.local>"
 | `MAIL_USER` | Usuario de la cuenta SMTP |
 | `MAIL_PASS` | Contraseña de la cuenta SMTP (en Gmail, una contraseña de aplicación) |
 | `MAIL_FROM` | Remitente que ve el usuario en el email |
+| `MONGO_TEST_URL` | Opcional, solo para tests: base exclusiva para el test de concurrencia (ver [Tests automatizados](#tests-automatizados)). No va en el `.env` del servidor |
 
 Para probar el envío sin una casilla real se puede usar [Ethereal](https://ethereal.email): crea una cuenta SMTP de prueba y muestra los emails enviados en una bandeja web, sin entregarlos a nadie. Si las variables `MAIL_*` no están completas, el servidor arranca igual y las inscripciones funcionan, pero no se envían emails.
 
@@ -348,6 +453,9 @@ npm start
 
 # tests automatizados
 npm test
+
+# recalcular los lugares reservados de cada evento a partir de sus tickets activos
+npm run sync:seats
 ```
 
 ## Estructura de carpetas
@@ -377,25 +485,28 @@ src/
 │   ├── events.controller.js
 │   ├── categories.controller.js
 │   ├── tickets.controller.js
-│   ├── sessions.controller.js   # responde, genera el token y maneja la cookie
+│   ├── sessions.controller.js   # pone y borra la cookie, responde con el DTO del usuario
 │   └── users.controller.js
 ├── services/
 │   ├── events.service.js        # reglas de eventos: validaciones, estados, filtros y paginación
 │   ├── categories.service.js    # nombre obligatorio, en minúsculas y sin duplicados
 │   ├── tickets.service.js       # inscripción: estado del evento, duplicados, cupos y cancelación
 │   ├── mail.service.js          # email de confirmación (HTML escapado)
+│   ├── sessions.service.js      # arma el token de la sesión
 │   └── users.service.js         # listado sin contraseñas y cambio de rol
 ├── dto/
-│   ├── user.dto.js              # datos públicos del usuario (sin contraseña)
-│   └── ticket.dto.js            # datos públicos del ticket
+│   ├── user.dto.js              # UserDTO y CurrentUserDTO (sin contraseña)
+│   ├── event.dto.js             # EventDTO (organizador sin email, availableSeats)
+│   ├── ticket.dto.js            # TicketDTO (usuario y evento filtrados)
+│   └── category.dto.js          # CategoryDTO
 ├── repositories/
-│   ├── events.repository.js     # página de resultados + total
+│   ├── events.repository.js     # página + total, reserva y liberación atómica de cupos, eventos vencidos
 │   ├── categories.repository.js # búsqueda por id o por nombre
-│   ├── tickets.repository.js    # tickets activos, cupo ocupado y cancelación por evento
+│   ├── tickets.repository.js    # tickets activos, lugares ocupados, cancelación condicionada y por evento
 │   └── users.repository.js
 ├── dao/
-│   ├── events.dao.js            # consultas con populate, sort, skip y limit
-│   ├── categories.dao.js
+│   ├── events.dao.js            # consultas con populate, sort, skip y limit; actualizaciones condicionales
+│   ├── categories.dao.js        # incluye el formato de id de MongoDB
 │   ├── tickets.dao.js           # aggregate para sumar los lugares ocupados
 │   └── users.dao.js
 ├── models/
@@ -413,7 +524,12 @@ src/
     ├── public-ref.js            # referencias con populate → { id, campos }
     ├── reservation-code.js      # código de reserva aleatorio (HKY-XXXXXXXX)
     └── errors.js                # error con código de estado (AppError)
+scripts/
+└── sync-reserved-seats.js       # npm run sync:seats
 tests/
+├── architecture.test.js         # reglas de la arquitectura: quién puede importar a quién
+├── dto.test.js                  # ningún DTO deja pasar la contraseña ni datos internos
+├── seats.concurrency.test.js    # reservas simultáneas contra MongoDB real (con MONGO_TEST_URL)
 ├── authorization.test.js        # matriz, authorizeRoles, propiedad de eventos y administración de usuarios
 ├── events.test.js               # reglas de eventos, estados, filtros, paginación y categorías
 ├── tickets.test.js              # inscripción, cupos, duplicados, cancelación, propiedad y email
@@ -427,12 +543,12 @@ Flujo del login y de una petición protegida:
 POST /api/sessions/login
   → sessions.router.js
   → passportCall("login")        (estrategia login de passport.config.js → req.user = { id, email, role })
-  → sessions.controller.js       (genera el JWT y setea la cookie currentUser)
+  → sessions.controller.js       (pide el token a sessions.service y setea la cookie currentUser)
 
 GET /api/sessions/current
   → sessions.router.js
   → auth = passportCall("current")  (estrategia current: cookie → JWT → usuario → req.user)
-  → sessions.controller.js          (responde { id, email, role })
+  → sessions.controller.js          (responde con CurrentUserDTO: { id, email, role })
 ```
 
 ## Rutas
@@ -738,13 +854,22 @@ Con un evento publicado de `capacity: 3`:
 npm test
 ```
 
-90 tests con `node:test` (incluido en Node, sin dependencias extra). No necesitan MongoDB ni un servidor de email: las estrategias, los middlewares y los services reciben **repositorios y un mailer falsos en memoria**, aprovechando la inyección de dependencias.
+115 tests con `node:test` (incluido en Node, sin dependencias extra). No necesitan MongoDB ni un servidor de email: las estrategias, los middlewares y los services reciben **repositorios y un mailer falsos en memoria**, aprovechando la inyección de dependencias.
+
+El test de concurrencia sí necesita MongoDB, porque la atomicidad la garantiza la base. Se saltea si no se define `MONGO_TEST_URL`; para correrlo (usar una base exclusiva, se borra al terminar):
+
+```bash
+MONGO_TEST_URL=mongodb://localhost:27017/be2_seats_test node --test tests/seats.concurrency.test.js
+```
 
 | Archivo | Qué prueba |
 | --- | --- |
+| `tests/architecture.test.js` | Solo los DAO importan modelos; controllers sin modelos, DAO ni repositories; services y repositories sin Mongoose; DTO sin acceso a la base |
+| `tests/dto.test.js` | `UserDTO` y `CurrentUserDTO` sin contraseña, lista blanca ante campos nuevos, documento original intacto; `EventDTO` filtra el organizador populado y expone `availableSeats`; `TicketDTO` con usuario populado sin contraseña; `CategoryDTO` |
+| `tests/seats.concurrency.test.js` | Con MongoDB real: 30 reservas simultáneas por el último lugar (entra una), varios lugares sin superar la capacidad, evento sin contador (`$ifNull`), liberaciones simultáneas sin quedar negativo |
 | `tests/authorization.test.js` | **Matriz** (y que no se pueda modificar en tiempo de ejecución). **authorizeRoles:** 401 sin sesión, 403 sin permiso, rutas admin solo para admin, fail closed sin roles. **Propiedad:** dueño, organizer ajeno 403, admin, 404, 401 y errores de la base. **Eventos:** organizer de la sesión, fecha futura, cancelado no se modifica, borradores fuera del listado. **Usuarios:** sin contraseñas, rol inválido 400, propio rol 409, inexistente 404 |
 | `tests/events.test.js` | **Crear:** nace `draft` con el organizer de la sesión, categoría por nombre o id, fecha pasada o inválida, `capacity` 0 / negativa / decimal / texto, precio negativo, campos faltantes. **Editar:** campos permitidos, cancelado y finalizado 409. **Estados:** transiciones válidas, cancelado no cambia, no se publica finalizado ni vencido, tabla congelada. **Listado:** el caso de la consigna (`status`, `category`, `page=2`, `limit=5`), valores por defecto, `location` parcial y escapada, rango de fechas, `sort`, tope de `limit` y query params inválidos. **Detalle:** populate sin email, 404. **Categorías:** minúsculas, vacía 400, duplicada 409 |
-| `tests/tickets.test.js` | **Inscripción:** ticket `confirmed` con el usuario de la sesión, código de reserva, email enviado, `quantity` por defecto, email que falla sin perder la inscripción, evento inexistente / borrador 404, cancelado / finalizado / vencido 409, `quantity` inválida 400, duplicado 409, sin cupo 409 con los lugares que quedan, cupo liberado al cancelar, código repetido. **Consultas:** mis tickets solo propios, inscriptos con resumen de cupo. **Cancelación:** `cancelled` + `cancelledAt` sin borrar, doble cancelación y evento finalizado 409. **Propiedad:** dueño, otro usuario 403, admin, 404, 401, organizer ajeno 403. **Consistencia:** `capacity` menor a reservados 409, cancelar evento cancela tickets. **Repository:** el cupo suma solo activos. **Email:** HTML escapado y sin configuración no envía |
+| `tests/tickets.test.js` | **Inscripción:** ticket `confirmed` con el usuario de la sesión, código de reserva, email enviado, `quantity` por defecto, email que falla sin perder la inscripción, evento inexistente / borrador 404, cancelado / finalizado / vencido 409, `quantity` inválida 400, duplicado 409, sin cupo 409 con los lugares que quedan, cupo liberado al cancelar, código repetido. **Consultas:** mis tickets solo propios, inscriptos con resumen de cupo. **Cancelación:** `cancelled` + `cancelledAt` sin borrar, doble cancelación y evento finalizado 409. **Propiedad:** dueño, otro usuario 403, admin, 404, 401, organizer ajeno 403. **Consistencia:** `capacity` menor a reservados 409, cancelar evento cancela tickets y deja el contador en 0. **Reserva atómica:** se reserva antes de crear el ticket, sin lugar no se crea nada, compensación si falla la creación, motivo real si el evento cambió, reintento si se liberó un lugar, cancelación que devuelve los lugares una sola vez. **Repositories:** filtros de las consultas atómicas (`$ifNull`, cancelación condicionada) y el cupo suma solo activos. **Email:** HTML escapado y sin configuración no envía |
 | `tests/passport.strategies.test.js` | **register:** éxito sin contraseña en la respuesta, hash bcrypt, rol ignorado, duplicado (409), campos faltantes, inválidos o de solo espacios (400). **login:** éxito con `{ id, email, role }` y el mismo 401 para email inexistente y contraseña incorrecta. **current:** token válido, sin cookie, alterado, mal formado, vencido, de otra clave, sin firma (`alg: none`) y usuario inexistente |
 | `tests/jwt.test.js` | Helper de JWT: payload, expiración y token alterado |
 
