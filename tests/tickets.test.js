@@ -39,7 +39,7 @@ function createFakeTickets(initial = []) {
         async getActiveByUserAndEvent(user, event) {
             return tickets.find(t => t.user === user && t.event === event && ACTIVE_TICKET_STATUS.includes(t.status)) ?? null;
         },
-        async getReservedSeats(event) {
+        async countReservedSeats(event) {
             return tickets
                 .filter(t => t.event === event && ACTIVE_TICKET_STATUS.includes(t.status))
                 .reduce((total, t) => total + t.quantity, 0);
@@ -51,7 +51,7 @@ function createFakeTickets(initial = []) {
             tickets.push(ticket);
             return ticket;
         },
-        async update(id, data) { const t = tickets.find(ticket => ticket._id === id); Object.assign(t, data); return t; }
+        async cancelTicket(id) { const t = tickets.find(ticket => ticket._id === id); Object.assign(t, { status: TICKET_STATUS.CANCELLED, cancelledAt: new Date() }); return t; }
     };
 }
 
@@ -311,11 +311,12 @@ describe("Consistencia entre eventos y tickets (EventsService)", () => {
     function createEventsService(reserved) {
         const events = [{ _id: "ev1", status: EVENT_STATUS.PUBLISHED, date: futureDate(), capacity: 10 }];
         const eventsRepository = {
-            async update(id, data) { const e = events.find(ev => ev._id === id); Object.assign(e, data); return e; }
+            async update(id, data) { const e = events.find(ev => ev._id === id); Object.assign(e, data); return e; },
+            async updateStatus(id, status) { return this.update(id, { status }); }
         };
         const tickets = {
             cancelledEvents: [],
-            async getReservedSeats() { return reserved; },
+            async countReservedSeats() { return reserved; },
             async cancelActiveByEvent(eventId) { this.cancelledEvents.push(eventId); }
         };
         return { service: new EventsService(eventsRepository, {}, tickets), events, tickets };
@@ -345,7 +346,7 @@ describe("TicketsRepository", () => {
         let received;
         const repository = new TicketsRepository({ async sumQuantity(filter) { received = filter; return 4; } });
 
-        const reserved = await repository.getReservedSeats("ev1");
+        const reserved = await repository.countReservedSeats("ev1");
 
         assert.equal(reserved, 4);
         assert.deepEqual(received, { event: "ev1", status: { $in: [...ACTIVE_TICKET_STATUS] } });

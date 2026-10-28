@@ -1,4 +1,5 @@
 import { eventsDao } from "../dao/events.dao.js";
+import { EVENT_STATUS } from "../config/event-status.js";
 
 class EventsRepository {
     constructor(dao) {
@@ -33,8 +34,16 @@ class EventsRepository {
         return this.dao.updateById(id, data);
     }
 
-    async updateMany(filter, data) {
-        return this.dao.updateMany(filter, data);
+    async updateStatus(id, status) {
+        return this.dao.updateById(id, { status });
+    }
+
+    // Los publicados cuya fecha ya pasó pasan a finalizados
+    async finishPastEvents(now) {
+        return this.dao.updateMany(
+            { status: EVENT_STATUS.PUBLISHED, date: { $lt: now } },
+            { status: EVENT_STATUS.FINISHED }
+        );
     }
 }
 

@@ -26,7 +26,7 @@ const categoriesRepository = {
 const ticketsRepository = {
     reserved: 0,
     cancelledEvents: [],
-    async getReservedSeats() { return this.reserved; },
+    async countReservedSeats() { return this.reserved; },
     async cancelActiveByEvent(eventId) { this.cancelledEvents.push(eventId); return { modifiedCount: 1 }; }
 };
 
@@ -44,7 +44,8 @@ function createFakeRepository(initial = []) {
         async getDetailById(id) { return events.find(e => e._id === id) ?? null; },
         async create(data) { const e = { _id: `ev${events.length + 1}`, ...data }; events.push(e); return e; },
         async update(id, data) { const e = events.find(ev => ev._id === id); Object.assign(e, data); return e; },
-        async updateMany() { this.finishCalls += 1; return { modifiedCount: 0 }; }
+        async updateStatus(id, status) { return this.update(id, { status }); },
+        async finishPastEvents() { this.finishCalls += 1; return { modifiedCount: 0 }; }
     };
 }
 

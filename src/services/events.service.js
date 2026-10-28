@@ -204,10 +204,7 @@ export class EventsService {
     // Los publicados cuya fecha ya pasó quedan como finalizados antes de consultarlos:
     // así el estado es consistente sin depender de una tarea programada
     async finishPastEvents() {
-        await this.repository.updateMany(
-            { status: EVENT_STATUS.PUBLISHED, date: { $lt: new Date() } },
-            { status: EVENT_STATUS.FINISHED }
-        );
+        await this.repository.finishPastEvents(new Date());
     }
 
     // Listado público con filtros (status, category, location, dateFrom, dateTo), paginación y orden
@@ -324,7 +321,7 @@ export class EventsService {
 
         // El cupo no puede quedar por debajo de los lugares que ya están reservados
         if (eventData.capacity !== undefined) {
-            const reserved = await this.ticketsRepository.getReservedSeats(event._id);
+            const reserved = await this.ticketsRepository.countReservedSeats(event._id);
             if (eventData.capacity < reserved) {
                 throw new AppError(`La capacidad no puede ser menor a los lugares ya reservados (${reserved})`, 409);
             }
@@ -372,7 +369,7 @@ export class EventsService {
             throw new AppError("No se puede publicar un evento cuya fecha ya pasó", 400);
         }
 
-        const updatedEvent = await this.repository.update(event._id, { status: newStatus });
+        const updatedEvent = await this.repository.updateStatus(event._id, newStatus);
 
         // Un evento cancelado no puede tener inscripciones activas: se cancelan sus tickets (el historial se conserva)
         if (newStatus === EVENT_STATUS.CANCELLED) {

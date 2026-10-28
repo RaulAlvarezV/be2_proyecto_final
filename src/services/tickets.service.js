@@ -80,7 +80,7 @@ export class TicketsService {
     async getByEvent(event) {
         const [tickets, reserved] = await Promise.all([
             this.repository.getByEvent(event._id),
-            this.repository.getReservedSeats(event._id)
+            this.repository.countReservedSeats(event._id)
         ]);
 
         return {
@@ -117,7 +117,7 @@ export class TicketsService {
         }
 
         // Solo cuentan los tickets activos: los cancelados no ocupan cupo
-        const reserved = await this.repository.getReservedSeats(event._id);
+        const reserved = await this.repository.countReservedSeats(event._id);
         const available = event.capacity - reserved;
 
         if (quantity > available) {
@@ -149,10 +149,7 @@ export class TicketsService {
             throw new AppError("No se puede cancelar una inscripción de un evento finalizado", 409);
         }
 
-        const cancelledTicket = await this.repository.update(ticket._id, {
-            status: TICKET_STATUS.CANCELLED,
-            cancelledAt: new Date()
-        });
+        const cancelledTicket = await this.repository.cancelTicket(ticket._id);
 
         return new TicketDTO(cancelledTicket);
     }

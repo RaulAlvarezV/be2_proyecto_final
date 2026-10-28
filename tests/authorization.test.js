@@ -25,7 +25,7 @@ const organizer = { id: "org1", role: ROLES.ORGANIZER };
 const otherOrganizer = { id: "org2", role: ROLES.ORGANIZER };
 const player = { id: "user1", role: ROLES.USER };
 const futureDate = () => new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString();
-const ticketsRepository = { async getReservedSeats() { return 0; }, async cancelActiveByEvent() { return { modifiedCount: 0 }; } };
+const ticketsRepository = { async countReservedSeats() { return 0; }, async cancelActiveByEvent() { return { modifiedCount: 0 }; } };
 const categoriesRepository = { async getByIdOrName(value) { return value === "torneo" ? { _id: "cat1", name: "torneo" } : null; } };
 const validEvent = (changes = {}) => ({ title: "Torneo", description: "Torneo de verano", category: "torneo", date: futureDate(), location: "Rosario", capacity: 16, ...changes });
 
@@ -137,7 +137,8 @@ describe("Reglas de eventos (EventsService)", () => {
                 const docs = events.filter(e => e.status !== filter.status?.$ne);
                 return { docs, total: docs.length };
             },
-            async updateMany() { return { modifiedCount: 0 }; },
+            async finishPastEvents() { return { modifiedCount: 0 }; },
+            async updateStatus(id, status) { return this.update(id, { status }); },
             async create(data) { const e = { _id: `ev${events.length + 1}`, ...data }; events.push(e); return e; },
             async update(id, data) { const e = events.find(ev => ev._id === id); Object.assign(e, data); return e; }
         };
