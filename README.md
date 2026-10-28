@@ -875,6 +875,54 @@ MONGO_TEST_URL=mongodb://localhost:27017/be2_seats_test node --test tests/seats.
 
 ## Evidencias
 
+### Arquitectura con DAO, Repository y DTO (Pre-entrega 8)
+
+Flujo completo con una usuaria nueva (**Martina**), el organizer **Raul** y la usuaria **Sofía**, sobre la **Clínica de defensa** (cupo 1). Las respuestas son las mismas que en las entregas anteriores: la refactorización no cambió cómo se consume la API.
+
+**1. Registro → 201:** la respuesta sale por `UserDTO`, sin contraseña. El email llega con mayúsculas y espacios y se guarda normalizado.
+
+![Registro respondiendo 201 sin contraseña](docs/evidencias/p8-registro-201.png)
+
+**2. Crear evento (Raul, organizer) → 201:** sale por `EventDTO`, con `availableSeats`.
+
+![Crear evento respondiendo 201](docs/evidencias/p8-crear-evento-201.png)
+
+**3. Login → 200.**
+
+![Login respondiendo 200](docs/evidencias/p8-login-200.png)
+
+**4. Inscribirse → 201:** el cupo se reserva de forma atómica antes de crear el ticket.
+
+![Inscripción respondiendo 201](docs/evidencias/p8-inscripcion-201.png)
+
+**5. `/current` → 200 sin contraseña:** `CurrentUserDTO` devuelve solo `id`, `email` y `role`.
+
+![GET /api/sessions/current sin contraseña](docs/evidencias/p8-current-sin-password.png)
+
+**6. Mis tickets → 200:** `TicketDTO` con los datos del evento.
+
+![GET /api/tickets/my-tickets respondiendo 200](docs/evidencias/p8-mis-tickets-200.png)
+
+**7. Error de negocio → 409, no 500:** Sofía intenta inscribirse a la clínica, que ya no tiene lugar.
+
+![Inscripción sin cupo respondiendo 409](docs/evidencias/p8-error-negocio-409.png)
+
+**8. Con sesión pero sin permisos → 403:** Sofía (`user`) intenta crear un evento.
+
+![Crear evento como user respondiendo 403](docs/evidencias/p8-sin-permisos-403.png)
+
+**9. Ticket con populate del usuario, sin contraseña:** Raul ve los inscriptos de su clínica; del usuario solo pasan `first_name`, `last_name` y `email`.
+
+![GET /api/events/:eid/tickets con el usuario sin contraseña](docs/evidencias/p8-ticket-populate-sin-password.png)
+
+**10. Cancelar la inscripción → 200:** el ticket queda `cancelled` con `cancelledAt` y el lugar vuelve al cupo.
+
+![Cancelación respondiendo 200](docs/evidencias/p8-cancelar-200.png)
+
+**11. Endpoint protegido sin sesión → 401.**
+
+![Inscripción sin sesión respondiendo 401](docs/evidencias/p8-sin-sesion-401.png)
+
 ### Tickets, inscripciones y control de cupos (Pre-entrega 7)
 
 Usuarios de prueba: **Lucía** y **Sofía** (`user`), **Raul** (`organizer`) y **Ana** (`admin`). Para los casos de cupo se usó la **Clínica de stick handling** de Raul, con `capacity: 2`. El email se probó con una casilla de [Ethereal](https://ethereal.email).
