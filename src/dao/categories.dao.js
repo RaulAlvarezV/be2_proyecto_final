@@ -1,6 +1,12 @@
+import { isValidObjectId } from "mongoose";
 import { categoryModel } from "../models/Category.js";
 
 class CategoriesDao {
+    // El formato de los ids depende de la base (ObjectId en MongoDB): por eso lo resuelve el DAO
+    isValidId(id) {
+        return isValidObjectId(id);
+    }
+
     async find(filter = {}) {
         return categoryModel.find(filter).sort({ name: 1 }).lean();
     }

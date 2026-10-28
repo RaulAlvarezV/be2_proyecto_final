@@ -1,4 +1,3 @@
-import { isValidObjectId } from "mongoose";
 import { categoriesDao } from "../dao/categories.dao.js";
 
 class CategoriesRepository {
@@ -20,7 +19,7 @@ class CategoriesRepository {
 
     // La categoría puede llegar como id o como nombre (?category=workshop): si no tiene formato de id se busca por nombre
     async getByIdOrName(value) {
-        if (isValidObjectId(value)) {
+        if (this.dao.isValidId(value)) {
             return this.getById(value);
         }
 
