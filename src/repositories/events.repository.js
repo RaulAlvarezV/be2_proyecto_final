@@ -72,6 +72,15 @@ class EventsRepository {
         return this.dao.findIds();
     }
 
+    // Edita el evento solo si la capacidad nueva alcanza para los lugares ya reservados.
+    // Condición y cambio van juntos: una inscripción que entre en el medio no puede dejar el evento sobrevendido
+    async updateIfCapacityFits(id, data) {
+        return this.dao.findOneAndUpdate(
+            { _id: id, $expr: { $gte: [data.capacity, { $ifNull: ["$reservedSeats", 0] }] } },
+            data
+        );
+    }
+
     async updateStatus(id, status) {
         return this.dao.updateById(id, { status });
     }

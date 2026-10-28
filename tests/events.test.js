@@ -24,9 +24,7 @@ const categoriesRepository = {
 
 // Repository falso de tickets: sin lugares reservados y registra las cancelaciones en cascada
 const ticketsRepository = {
-    reserved: 0,
     cancelledEvents: [],
-    async countReservedSeats() { return this.reserved; },
     async cancelActiveByEvent(eventId) { this.cancelledEvents.push(eventId); return { modifiedCount: 1 }; }
 };
 
@@ -45,6 +43,11 @@ function createFakeRepository(initial = []) {
         async create(data) { const e = { _id: `ev${events.length + 1}`, ...data }; events.push(e); return e; },
         async update(id, data) { const e = events.find(ev => ev._id === id); Object.assign(e, data); return e; },
         async updateStatus(id, status) { return this.update(id, { status }); },
+        async updateIfCapacityFits(id, data) {
+            const e = events.find(ev => ev._id === id);
+            return data.capacity >= (e.reservedSeats ?? 0) ? Object.assign(e, data) : null;
+        },
+        async getById(id) { return events.find(e => e._id === id) ?? null; },
         async resetReservedSeats(id) { return this.update(id, { reservedSeats: 0 }); },
         async finishPastEvents() { this.finishCalls += 1; return { modifiedCount: 0 }; }
     };

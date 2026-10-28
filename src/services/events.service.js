@@ -319,12 +319,20 @@ export class EventsService {
             throw new AppError("No hay campos válidos para actualizar", 400);
         }
 
-        // El cupo no puede quedar por debajo de los lugares que ya están reservados
+        // El cupo no puede quedar por debajo de los lugares ya reservados: la condición se evalúa en la misma
+        // operación que guarda el cambio (si no se aplicó, se relee el evento para informar cuántos hay)
         if (eventData.capacity !== undefined) {
-            const reserved = await this.ticketsRepository.countReservedSeats(event._id);
-            if (eventData.capacity < reserved) {
-                throw new AppError(`La capacidad no puede ser menor a los lugares ya reservados (${reserved})`, 409);
+            const updated = await this.repository.updateIfCapacityFits(event._id, eventData);
+            if (!updated) {
+                const current = await this.repository.getById(event._id);
+                if (!current) {
+                    throw new AppError("Evento no encontrado", 404);
+                }
+
+                throw new AppError(`La capacidad no puede ser menor a los lugares ya reservados (${current.reservedSeats ?? 0})`, 409);
             }
+
+            return new EventDTO(updated);
         }
 
         const updatedEvent = await this.repository.update(event._id, eventData);

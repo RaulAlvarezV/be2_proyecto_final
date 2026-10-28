@@ -40,11 +40,6 @@ function createFakeTickets(initial = []) {
         async getActiveByUserAndEvent(user, event) {
             return tickets.find(t => t.user === user && t.event === event && ACTIVE_TICKET_STATUS.includes(t.status)) ?? null;
         },
-        async countReservedSeats(event) {
-            return tickets
-                .filter(t => t.event === event && ACTIVE_TICKET_STATUS.includes(t.status))
-                .reduce((total, t) => total + t.quantity, 0);
-        },
         async getByUser(user) { return tickets.filter(t => t.user === user); },
         async getByEvent(event) { return tickets.filter(t => t.event === event); },
         async create(data) {
@@ -334,15 +329,19 @@ describe("Inscriptos de un evento: propiedad sobre /:eid/tickets", () => {
 
 describe("Consistencia entre eventos y tickets (EventsService)", () => {
     function createEventsService(reserved) {
-        const events = [{ _id: "ev1", status: EVENT_STATUS.PUBLISHED, date: futureDate(), capacity: 10 }];
+        const events = [{ _id: "ev1", status: EVENT_STATUS.PUBLISHED, date: futureDate(), capacity: 10, reservedSeats: reserved }];
         const eventsRepository = {
+            async getById(id) { return events.find(ev => ev._id === id) ?? null; },
             async update(id, data) { const e = events.find(ev => ev._id === id); Object.assign(e, data); return e; },
+            async updateIfCapacityFits(id, data) {
+                const e = events.find(ev => ev._id === id);
+                return data.capacity >= (e.reservedSeats ?? 0) ? Object.assign(e, data) : null;
+            },
             async updateStatus(id, status) { return this.update(id, { status }); },
             async resetReservedSeats(id) { return this.update(id, { reservedSeats: 0 }); }
         };
         const tickets = {
             cancelledEvents: [],
-            async countReservedSeats() { return reserved; },
             async cancelActiveByEvent(eventId) { this.cancelledEvents.push(eventId); }
         };
         return { service: new EventsService(eventsRepository, {}, tickets), events, tickets };

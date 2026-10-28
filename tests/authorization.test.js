@@ -27,7 +27,7 @@ const organizer = { id: "org1", role: ROLES.ORGANIZER };
 const otherOrganizer = { id: "org2", role: ROLES.ORGANIZER };
 const player = { id: "user1", role: ROLES.USER };
 const futureDate = () => new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString();
-const ticketsRepository = { async countReservedSeats() { return 0; }, async cancelActiveByEvent() { return { modifiedCount: 0 }; } };
+const ticketsRepository = { async cancelActiveByEvent() { return { modifiedCount: 0 }; } };
 const categoriesRepository = { async getByIdOrName(value) { return value === "torneo" ? { _id: "cat1", name: "torneo" } : null; } };
 const validEvent = (changes = {}) => ({ title: "Torneo", description: "Torneo de verano", category: "torneo", date: futureDate(), location: "Rosario", capacity: 16, ...changes });
 
