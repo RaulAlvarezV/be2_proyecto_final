@@ -41,6 +41,10 @@ class EventsDao {
         return eventModel.findByIdAndUpdate(id, data, { returnDocument: "after", runValidators: true }).lean();
     }
 
+    async findIds() {
+        return eventModel.find({}, { _id: 1 }).lean();
+    }
+
     async updateMany(filter, data) {
         return eventModel.updateMany(filter, data);
     }

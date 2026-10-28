@@ -39,6 +39,13 @@ const eventSchema = new Schema(
             default: 0,
             min: 0
         },
+        // Lugares ocupados por tickets activos. Lo actualiza solo el backend, en la misma operación que controla
+        // el cupo (reserva atómica); nunca se toma del body
+        reservedSeats: {
+            type: Number,
+            default: 0,
+            min: 0
+        },
         status: {
             type: String,
             enum: EVENT_STATUS_VALUES,

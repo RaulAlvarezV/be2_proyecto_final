@@ -34,6 +34,15 @@ class EventsRepository {
         return this.dao.updateById(id, data);
     }
 
+    // Recalcula el contador a partir de los tickets activos (sync:seats)
+    async setReservedSeats(id, reservedSeats) {
+        return this.dao.updateById(id, { reservedSeats });
+    }
+
+    async getAllIds() {
+        return this.dao.findIds();
+    }
+
     async updateStatus(id, status) {
         return this.dao.updateById(id, { status });
     }

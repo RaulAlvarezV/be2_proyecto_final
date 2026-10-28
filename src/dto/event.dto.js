@@ -15,6 +15,7 @@ export class EventDTO {
         this.date = event.date;
         this.location = event.location;
         this.capacity = event.capacity;
+        this.availableSeats = event.capacity - (event.reservedSeats ?? 0);
         this.price = event.price;
         this.status = event.status;
         this.organizer = toPublicRef(event.organizer, EVENT_ORGANIZER_FIELDS);
