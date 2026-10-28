@@ -15,8 +15,8 @@ class TicketsRepository {
         return this.dao.findOne({ user: userId, event: eventId, status: { $in: ACTIVE_TICKET_STATUS } });
     }
 
-    // Lugares ocupados = suma de quantity de los tickets activos. Los cancelados no se cuentan,
-    // por eso al cancelar un ticket el cupo se libera solo, sin tocar el evento
+    // Lugares ocupados según los tickets activos (suma de quantity; los cancelados no cuentan).
+    // Es la fuente para recalcular el contador del evento con sync:seats
     async countReservedSeats(eventId) {
         return this.dao.sumQuantity({ event: eventId, status: { $in: ACTIVE_TICKET_STATUS } });
     }
@@ -43,9 +43,13 @@ class TicketsRepository {
         );
     }
 
-    // Cancelar no borra el ticket: cambia el estado y guarda la fecha
+    // Cancelar no borra el ticket: cambia el estado y guarda la fecha. Solo si sigue activo:
+    // si llegan dos cancelaciones juntas, una sola lo cambia (y solo esa devuelve los lugares). null si ya estaba cancelado
     async cancelTicket(id) {
-        return this.dao.updateById(id, { status: TICKET_STATUS.CANCELLED, cancelledAt: new Date() });
+        return this.dao.findOneAndUpdate(
+            { _id: id, status: { $in: ACTIVE_TICKET_STATUS } },
+            { status: TICKET_STATUS.CANCELLED, cancelledAt: new Date() }
+        );
     }
 }
 

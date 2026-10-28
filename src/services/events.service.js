@@ -374,6 +374,7 @@ export class EventsService {
         // Un evento cancelado no puede tener inscripciones activas: se cancelan sus tickets (el historial se conserva)
         if (newStatus === EVENT_STATUS.CANCELLED) {
             await this.ticketsRepository.cancelActiveByEvent(event._id);
+            await this.repository.resetReservedSeats(event._id);
         }
 
         return new EventDTO(updatedEvent);

@@ -52,12 +52,35 @@ function createFakeTickets(initial = []) {
             tickets.push(ticket);
             return ticket;
         },
-        async cancelTicket(id) { const t = tickets.find(ticket => ticket._id === id); Object.assign(t, { status: TICKET_STATUS.CANCELLED, cancelledAt: new Date() }); return t; }
+        // Como el real: solo cancela si el ticket sigue activo (si no, null)
+        async cancelTicket(id) {
+            const t = tickets.find(ticket => ticket._id === id && ACTIVE_TICKET_STATUS.includes(ticket.status));
+            if (!t) return null;
+            Object.assign(t, { status: TICKET_STATUS.CANCELLED, cancelledAt: new Date() });
+            return t;
+        }
     };
 }
 
+// Repository falso de eventos: la reserva respeta las mismas condiciones que la consulta atómica del real
 function createFakeEvents(events = [publishedEvent()]) {
-    return { async getById(id) { return events.find(e => e._id === id) ?? null; } };
+    return {
+        events,
+        async getById(id) { return events.find(e => e._id === id) ?? null; },
+        async reserveSeats(id, quantity, now) {
+            const event = events.find(e => e._id === id);
+            const fits = event && event.status === EVENT_STATUS.PUBLISHED && new Date(event.date) > now &&
+                (event.reservedSeats ?? 0) + quantity <= event.capacity;
+            if (!fits) return null;
+            event.reservedSeats = (event.reservedSeats ?? 0) + quantity;
+            return event;
+        },
+        async releaseSeats(id, quantity) {
+            const event = events.find(e => e._id === id);
+            event.reservedSeats = Math.max(0, (event.reservedSeats ?? 0) - quantity);
+            return event;
+        }
+    };
 }
 
 // Mailer falso: registra los emails en lugar de enviarlos
@@ -75,7 +98,7 @@ function createFakeMailer({ fail = false } = {}) {
 }
 
 function createService({ tickets = createFakeTickets(), events = createFakeEvents(), mailer = createFakeMailer() } = {}) {
-    return { service: new TicketsService(tickets, events, mailer), tickets, mailer };
+    return { service: new TicketsService(tickets, events, mailer), tickets, events, mailer };
 }
 
 // Ejecuta un middleware como lo hace Express y devuelve cómo terminó
@@ -232,10 +255,10 @@ describe("Consultas de tickets", () => {
     });
 
     test("inscriptos de un evento con el resumen de cupo", async () => {
-        const { service } = createService();
+        const { service, events } = createService();
         await service.create("ev1", 2, player);
 
-        const result = await service.getByEvent(publishedEvent());
+        const result = await service.getByEvent(events.events[0]);
 
         assert.deepEqual(result.summary, { capacity: 3, reserved: 2, available: 1 });
         assert.equal(result.tickets.length, 1);
@@ -314,7 +337,8 @@ describe("Consistencia entre eventos y tickets (EventsService)", () => {
         const events = [{ _id: "ev1", status: EVENT_STATUS.PUBLISHED, date: futureDate(), capacity: 10 }];
         const eventsRepository = {
             async update(id, data) { const e = events.find(ev => ev._id === id); Object.assign(e, data); return e; },
-            async updateStatus(id, status) { return this.update(id, { status }); }
+            async updateStatus(id, status) { return this.update(id, { status }); },
+            async resetReservedSeats(id) { return this.update(id, { reservedSeats: 0 }); }
         };
         const tickets = {
             cancelledEvents: [],

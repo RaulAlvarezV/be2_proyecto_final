@@ -50,8 +50,9 @@ class TicketsDao {
         return ticketModel.updateMany(filter, data);
     }
 
-    async updateById(id, data) {
-        return ticketModel.findByIdAndUpdate(id, data, { returnDocument: "after", runValidators: true }).lean();
+    // Actualiza solo si el ticket cumple el filtro, en una sola operación (devuelve null si no lo cumple)
+    async findOneAndUpdate(filter, data) {
+        return ticketModel.findOneAndUpdate(filter, data, { returnDocument: "after", runValidators: true }).lean();
     }
 }
 

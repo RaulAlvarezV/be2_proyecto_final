@@ -41,6 +41,17 @@ class EventsDao {
         return eventModel.findByIdAndUpdate(id, data, { returnDocument: "after", runValidators: true }).lean();
     }
 
+    // Actualiza solo si el documento cumple el filtro: MongoDB evalúa la condición y aplica el cambio
+    // en una sola operación sobre el documento, así dos pedidos simultáneos no pueden pasar los dos
+    async findOneAndUpdate(filter, update) {
+        return eventModel.findOneAndUpdate(filter, update, { returnDocument: "after" }).lean();
+    }
+
+    // Igual, pero el valor nuevo se calcula a partir del actual (pipeline de agregación)
+    async findOneAndUpdatePipeline(filter, pipeline) {
+        return eventModel.findOneAndUpdate(filter, pipeline, { returnDocument: "after", updatePipeline: true }).lean();
+    }
+
     async findIds() {
         return eventModel.find({}, { _id: 1 }).lean();
     }

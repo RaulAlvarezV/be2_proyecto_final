@@ -34,9 +34,38 @@ class EventsRepository {
         return this.dao.updateById(id, data);
     }
 
+    // Reserva atómica del cupo: suma los lugares solo si el evento sigue publicado, su fecha no pasó y hay lugar.
+    // Devuelve el evento actualizado, o null si no se pudo reservar
+    async reserveSeats(id, quantity, now) {
+        return this.dao.findOneAndUpdate(
+            {
+                _id: id,
+                status: EVENT_STATUS.PUBLISHED,
+                date: { $gt: now },
+                // $ifNull: un evento creado antes del contador cuenta como 0 reservados.
+                // Sin esto la suma da null, y en MongoDB null es menor que cualquier número: la condición pasaría siempre
+                $expr: { $lte: [{ $add: [{ $ifNull: ["$reservedSeats", 0] }, quantity] }, "$capacity"] }
+            },
+            { $inc: { reservedSeats: quantity } }
+        );
+    }
+
+    // Devuelve lugares (cancelación de un ticket o compensación). El contador nunca queda por debajo de cero
+    async releaseSeats(id, quantity) {
+        return this.dao.findOneAndUpdatePipeline(
+            { _id: id },
+            [{ $set: { reservedSeats: { $max: [0, { $subtract: [{ $ifNull: ["$reservedSeats", 0] }, quantity] }] } } }]
+        );
+    }
+
     // Recalcula el contador a partir de los tickets activos (sync:seats)
     async setReservedSeats(id, reservedSeats) {
         return this.dao.updateById(id, { reservedSeats });
+    }
+
+    // Al cancelar un evento se cancelan sus tickets: no queda ningún lugar reservado
+    async resetReservedSeats(id) {
+        return this.setReservedSeats(id, 0);
     }
 
     async getAllIds() {

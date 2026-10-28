@@ -143,6 +143,7 @@ describe("Reglas de eventos (EventsService)", () => {
             },
             async finishPastEvents() { return { modifiedCount: 0 }; },
             async updateStatus(id, status) { return this.update(id, { status }); },
+            async resetReservedSeats(id) { return this.update(id, { reservedSeats: 0 }); },
             async create(data) { const e = { _id: `ev${events.length + 1}`, ...data }; events.push(e); return e; },
             async update(id, data) { const e = events.find(ev => ev._id === id); Object.assign(e, data); return e; }
         };
