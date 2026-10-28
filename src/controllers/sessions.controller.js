@@ -1,4 +1,4 @@
-import { generateToken } from "../utils/jwt.js";
+import { sessionsService } from "../services/sessions.service.js";
 import { COOKIE_NAME, cookieOptions } from "../config/cookie.js";
 import { CurrentUserDTO } from "../dto/user.dto.js";
 
@@ -8,9 +8,9 @@ export function register(req, res) {
 }
 
 // La estrategia login ya validó las credenciales y dejó { id, email, role } en req.user.
-// El token y la cookie los genera el controller, no Passport
+// El token lo arma el service de sesiones; el controller pone la cookie y responde
 export function login(req, res) {
-    const token = generateToken(req.user);
+    const token = sessionsService.createToken(req.user);
 
     res.cookie(COOKIE_NAME, token, cookieOptions);
     res.status(200).json({ status: "success", message: "Login correcto" });
