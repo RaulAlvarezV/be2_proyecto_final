@@ -2,7 +2,15 @@
 
 Proyecto final de Backend II (Coderhouse). API REST para gestionar torneos y clínicas de hockey sobre césped: usuarios, eventos, categorías e inscripciones.
 
-Esta versión corresponde a la **Pre-entrega 8**: la API quedó organizada en una **arquitectura en capas formal** (routes → middlewares → controllers → services → repositories → DAO → models, con **DTO** para todas las respuestas) sin cambiar su comportamiento externo: las rutas, los permisos y las respuestas son las mismas que en la Pre-entrega 7. Además, aplicando la devolución de esa entrega, la **reserva del cupo es atómica**: dos inscripciones simultáneas ya no pueden superar la capacidad de un evento (ver [Reserva atómica de cupos](#reserva-atómica-de-cupos)).
+Esta es la **entrega final**: la versión completa e integrada de la API construida a lo largo de las pre-entregas.
+
+- **Autenticación:** registro y login con bcrypt, JWT en una cookie HTTP Only y estrategias de Passport.js (`register`, `login`, `current`).
+- **Autorización:** roles `user`, `organizer` y `admin`, matriz de permisos y control de propiedad de eventos y tickets (401 vs 403).
+- **Eventos:** ciclo de vida (`draft` → `published` → `cancelled` / `finished`), reglas de negocio, filtros, paginación y orden.
+- **Inscripciones:** tickets con **reserva atómica del cupo**, sin duplicados, cancelación que libera los lugares y emails de confirmación y cancelación con Nodemailer.
+- **Arquitectura en capas:** routes, middlewares, controllers, services, repositories, DAO, DTO y models, con manejo de errores centralizado.
+
+Para probarla rápido: [Instalación](#instalación) → [Usuarios de prueba](#usuarios-de-prueba) (`npm run seed`) → [Colección de Postman](#colección-de-postman) con el [flujo completo](#flujo-completo-verificado).
 
 ## Versiones por entrega
 
@@ -18,6 +26,7 @@ Cada pre-entrega quedó en su propia rama, así se puede revisar el código tal 
 | Pre-entrega 6 | [`pre-entrega-6`](https://github.com/RaulAlvarezV/be2_proyecto_final/tree/pre-entrega-6) | Entidad Event con estados, reglas de negocio en el service, filtros, paginación, orden y categorías |
 | Pre-entrega 7 | [`pre-entrega-7`](https://github.com/RaulAlvarezV/be2_proyecto_final/tree/pre-entrega-7) | Tickets: inscripción con control de cupos, duplicados, cancelaciones, inscriptos por evento y email con Nodemailer |
 | Pre-entrega 8 | [`pre-entrega-8`](https://github.com/RaulAlvarezV/be2_proyecto_final/tree/pre-entrega-8) | Arquitectura en capas con DAO, Repository y DTO, errores centralizados y reserva atómica de cupos |
+| **Entrega final** | [`main`](https://github.com/RaulAlvarezV/be2_proyecto_final/tree/main) | Integración completa: email de cancelación, datos de prueba (`npm run seed`), colección de Postman y documentación del flujo completo |
 
 Las capturas de cada entrega están en la sección [Evidencias](#evidencias).
 
@@ -290,13 +299,20 @@ MongoDB evalúa el filtro y aplica el `$inc` juntos sobre el documento: si dos p
 
 ### Cancelación
 
-`PATCH /api/tickets/:tid/cancel` cambia `status` a `cancelled`, registra `cancelledAt` y devuelve los lugares al cupo del evento. Lo puede hacer el dueño del ticket o un `admin` (middleware `authorizeTicketOwnerOrAdmin`). No se cancela un ticket ya cancelado (`409`) ni uno de un evento finalizado (`409`).
+`PATCH /api/tickets/:tid/cancel` cambia `status` a `cancelled`, registra `cancelledAt`, devuelve los lugares al cupo del evento y avisa por email al dueño del ticket. Lo puede hacer el dueño del ticket o un `admin` (middleware `authorizeTicketOwnerOrAdmin`). No se cancela un ticket ya cancelado (`409`) ni uno de un evento finalizado (`409`).
 
-### Email de confirmación
+### Emails de confirmación y cancelación
 
-Al confirmar una inscripción, **Nodemailer** envía un email al usuario con el evento, la fecha, el lugar, los lugares reservados y el código de reserva. Las credenciales salen de las variables `MAIL_*` del `.env` (ver [Variables de entorno](#variables-de-entorno)), nunca del código.
+**Nodemailer** envía dos avisos con el evento, la fecha, el lugar, los lugares y el código de reserva:
 
-- La operación principal es el ticket: **si el email falla, la inscripción igual queda hecha**. El error se registra en la consola del servidor y la respuesta lo indica con `emailSent: false`.
+| Cuándo | Asunto | A quién |
+| --- | --- | --- |
+| Se confirma una inscripción | "Inscripción confirmada: <evento>" | Al usuario que se inscribió |
+| Se cancela un ticket | "Inscripción cancelada: <evento>" | Al dueño del ticket, aunque lo cancele un `admin` |
+
+Las credenciales salen de las variables `MAIL_*` del `.env` (ver [Variables de entorno](#variables-de-entorno)), nunca del código.
+
+- La operación principal es el ticket: **si el email falla, la inscripción o la cancelación igual quedan hechas**. El error se registra en la consola del servidor y la respuesta lo indica con `emailSent: false`.
 - Si las variables `MAIL_*` no están configuradas, el servidor arranca igual (avisa por consola) y no intenta enviar.
 - Los datos del evento se escapan antes de armar el HTML del email.
 
@@ -366,7 +382,7 @@ El rol se lee de la base en cada petición (la estrategia `current` busca al usu
 
 ### Crear el primer admin
 
-El registro público siempre crea usuarios `user`. Para el **primer** admin (una sola vez):
+Con `npm run seed` ya queda un admin de prueba (ver [Usuarios de prueba](#usuarios-de-prueba)). En una base sin el seed, el registro público siempre crea usuarios `user`; para el **primer** admin (una sola vez):
 
 1. Registrarse con `POST /api/sessions/register`.
 2. En MongoDB Compass → base `be2_proyecto_final` → colección `users` → editar el documento y cambiar `"role": "user"` por `"role": "admin"`.
@@ -406,6 +422,13 @@ git clone https://github.com/RaulAlvarezV/be2_proyecto_final.git
 cd be2_proyecto_final
 npm install
 ```
+
+Puesta en marcha completa, con MongoDB corriendo:
+
+1. Copiar `.env.example` como `.env` y completar al menos `JWT_SECRET` (ver [Variables de entorno](#variables-de-entorno)). Las variables `MAIL_*` son opcionales: sin ellas la API funciona igual, pero no envía emails.
+2. `npm run seed` para cargar los [usuarios de prueba](#usuarios-de-prueba), las categorías y algunos eventos.
+3. `npm start` (o `npm run dev`) y probar con la [colección de Postman](#colección-de-postman).
+4. `npm test` para correr los tests automatizados (no necesitan MongoDB).
 
 ## Variables de entorno
 
@@ -454,9 +477,46 @@ npm start
 # tests automatizados
 npm test
 
+# cargar los datos de prueba (usuarios, categorías y eventos)
+npm run seed
+
 # recalcular los lugares reservados de cada evento a partir de sus tickets activos
 npm run sync:seats
 ```
+
+## Usuarios de prueba
+
+`npm run seed` carga en la base del `.env` un usuario por rol, las categorías y tres eventos publicados del organizer. Se puede correr varias veces: lo que ya existe no se vuelve a crear. Las contraseñas son **solo para desarrollo**: el script no corre con `NODE_ENV=production`.
+
+| Rol | Email | Contraseña |
+| --- | --- | --- |
+| `admin` | `admin@hockey.local` | `Admin12345` |
+| `organizer` | `club@hockey.local` | `Club12345` |
+| `user` | `jugadora@hockey.local` | `Jugadora123` |
+
+| Categorías | Eventos publicados (del organizer) |
+| --- | --- |
+| `torneo`, `clinica`, `workshop` | Torneo Apertura Sub 16 (12 lugares) · Clínica de arqueras (**1 lugar**, para probar el caso sin cupo) · Workshop de corners cortos (20 lugares, gratuito) |
+
+Para crear otros usuarios: `POST /api/sessions/register` crea siempre un `user`, y el admin cambia el rol con `PATCH /api/users/:uid/role` (ver [Roles y autorización](#roles-y-autorización)).
+
+## Colección de Postman
+
+[`docs/postman/plataforma-hockey.postman_collection.json`](docs/postman/plataforma-hockey.postman_collection.json) tiene el flujo completo de la entrega final con los usuarios de prueba, en carpetas que siguen el orden de los casos:
+
+1. Registro, login, current y logout.
+2. Roles: un `user` no crea eventos.
+3. Inscripción, email, duplicado, cupo y cancelación.
+4. Propiedad de los eventos.
+5. Respuestas sin password.
+6. Listado paginado.
+
+Cómo usarla:
+
+1. Levantar el servidor y correr `npm run seed`.
+2. En Postman: **Import** → elegir el archivo.
+3. Si el servidor no usa el puerto 8080, cambiar la variable `base` de la colección (pestaña **Variables**).
+4. Correrla completa con **Run collection** (Runner). Cada pedido tiene sus verificaciones (`pm.test`) y los ids de los eventos y tickets que se crean se guardan solos en variables. Se puede correr varias veces: el usuario nuevo se registra con un email distinto en cada corrida.
 
 ## Estructura de carpetas
 
@@ -491,7 +551,7 @@ src/
 │   ├── events.service.js        # reglas de eventos: validaciones, estados, filtros y paginación
 │   ├── categories.service.js    # nombre obligatorio, en minúsculas y sin duplicados
 │   ├── tickets.service.js       # inscripción: estado del evento, duplicados, cupos y cancelación
-│   ├── mail.service.js          # email de confirmación (HTML escapado)
+│   ├── mail.service.js          # emails de confirmación y cancelación (HTML escapado)
 │   ├── sessions.service.js      # arma el token de la sesión
 │   └── users.service.js         # listado sin contraseñas y cambio de rol
 ├── dto/
@@ -525,7 +585,11 @@ src/
     ├── reservation-code.js      # código de reserva aleatorio (HKY-XXXXXXXX)
     └── errors.js                # error con código de estado (AppError)
 scripts/
+├── seed.js                      # npm run seed: usuarios, categorías y eventos de prueba
 └── sync-reserved-seats.js       # npm run sync:seats
+docs/
+├── postman/                     # colección con el flujo completo
+└── evidencias/                  # capturas de cada entrega
 tests/
 ├── architecture.test.js         # reglas de la arquitectura: quién puede importar a quién
 ├── dto.test.js                  # ningún DTO deja pasar la contraseña ni datos internos
@@ -802,6 +866,23 @@ Ruta inexistente → `404`
 { "status": "error", "message": "Ruta no encontrada" }
 ```
 
+## Flujo completo verificado
+
+Los 10 casos que pide la entrega final. Todos están en la [colección de Postman](#colección-de-postman) y tienen su captura en las evidencias de las entregas:
+
+| # | Caso | Resultado | Evidencia |
+| --- | --- | --- | --- |
+| 1 | Registro → login → `/current` → logout → `/current` | `201` → `200` (cookie) → `200` → `200` → `401` | [registro](docs/evidencias/p4-register-201.png) · [login](docs/evidencias/p4-login-cookie.png) · [current](docs/evidencias/p4-current-200.png) · [logout](docs/evidencias/p4-logout-200.png) · [current 401](docs/evidencias/p4-current-401.png) |
+| 2 | `user` intenta crear un evento | `403` | [captura](docs/evidencias/p8-sin-permisos-403.png) |
+| 3 | `organizer` crea un evento → `user` se inscribe → email → cupo descontado | `201` → `201` → email recibido → `available: 0` | [evento](docs/evidencias/p8-crear-evento-201.png) · [inscripción](docs/evidencias/p8-inscripcion-201.png) · [email](docs/evidencias/p7-email-recibido.png) · [cupo](docs/evidencias/p8-ticket-populate-sin-password.png) |
+| 4 | `user` se inscribe de nuevo al mismo evento | `409` "Ya tenés una inscripción activa para este evento" | [captura](docs/evidencias/p7-duplicado-409.png) |
+| 5 | Inscripción a un evento sin cupo | `409` "No hay cupos suficientes: ..." | [captura](docs/evidencias/p8-error-negocio-409.png) |
+| 6 | `user` cancela su ticket → cupo liberado → nueva inscripción | `200` → `201` | [cancelación](docs/evidencias/p7-cancelacion-propia-200.png) · [nueva inscripción](docs/evidencias/p7-cupo-liberado-201.png) |
+| 7 | `organizer` modifica un evento ajeno | `403` | [captura](docs/evidencias/p6-editar-ajeno-403.png) |
+| 8 | `admin` modifica el evento de otro organizador | `200` | [captura](docs/evidencias/p6-admin-edita-200.png) |
+| 9 | Respuestas de usuario, evento y ticket sin password | Ninguna incluye `password` | [current](docs/evidencias/p8-current-sin-password.png) · [registro](docs/evidencias/p8-registro-201.png) · [ticket con populate](docs/evidencias/p8-ticket-populate-sin-password.png) |
+| 10 | `GET /api/events?status=published&page=2&limit=5` | `200` con `data`, `page`, `limit`, `total`, `totalPages` | [captura](docs/evidencias/p6-listado-filtros.png) |
+
 ## Cómo probar el flujo completo
 
 En **Postman** (guarda y envía la cookie automáticamente), con el servidor en marcha:
@@ -854,7 +935,7 @@ Con un evento publicado de `capacity: 3`:
 npm test
 ```
 
-115 tests con `node:test` (incluido en Node, sin dependencias extra). No necesitan MongoDB ni un servidor de email: las estrategias, los middlewares y los services reciben **repositorios y un mailer falsos en memoria**, aprovechando la inyección de dependencias.
+117 tests con `node:test` (incluido en Node, sin dependencias extra). No necesitan MongoDB ni un servidor de email: las estrategias, los middlewares y los services reciben **repositorios y un mailer falsos en memoria**, aprovechando la inyección de dependencias.
 
 El test de concurrencia sí necesita MongoDB, porque la atomicidad la garantiza la base. Se saltea si no se define `MONGO_TEST_URL`; para correrlo (usar una base exclusiva, se borra al terminar):
 
@@ -869,7 +950,7 @@ MONGO_TEST_URL=mongodb://localhost:27017/be2_seats_test node --test tests/seats.
 | `tests/seats.concurrency.test.js` | Con MongoDB real: 30 reservas simultáneas por el último lugar (entra una), varios lugares sin superar la capacidad, evento sin contador (`$ifNull`), liberaciones simultáneas sin quedar negativo |
 | `tests/authorization.test.js` | **Matriz** (y que no se pueda modificar en tiempo de ejecución). **authorizeRoles:** 401 sin sesión, 403 sin permiso, rutas admin solo para admin, fail closed sin roles. **Propiedad:** dueño, organizer ajeno 403, admin, 404, 401 y errores de la base. **Eventos:** organizer de la sesión, fecha futura, cancelado no se modifica, borradores fuera del listado. **Usuarios:** sin contraseñas, rol inválido 400, propio rol 409, inexistente 404 |
 | `tests/events.test.js` | **Crear:** nace `draft` con el organizer de la sesión, categoría por nombre o id, fecha pasada o inválida, `capacity` 0 / negativa / decimal / texto, precio negativo, campos faltantes. **Editar:** campos permitidos, cancelado y finalizado 409. **Estados:** transiciones válidas, cancelado no cambia, no se publica finalizado ni vencido, tabla congelada. **Listado:** el caso de la consigna (`status`, `category`, `page=2`, `limit=5`), valores por defecto, `location` parcial y escapada, rango de fechas, `sort`, tope de `limit` y query params inválidos. **Detalle:** populate sin email, 404. **Categorías:** minúsculas, vacía 400, duplicada 409 |
-| `tests/tickets.test.js` | **Inscripción:** ticket `confirmed` con el usuario de la sesión, código de reserva, email enviado, `quantity` por defecto, email que falla sin perder la inscripción, evento inexistente / borrador 404, cancelado / finalizado / vencido 409, `quantity` inválida 400, duplicado 409, sin cupo 409 con los lugares que quedan, cupo liberado al cancelar, código repetido. **Consultas:** mis tickets solo propios, inscriptos con resumen de cupo. **Cancelación:** `cancelled` + `cancelledAt` sin borrar, doble cancelación y evento finalizado 409. **Propiedad:** dueño, otro usuario 403, admin, 404, 401, organizer ajeno 403. **Consistencia:** `capacity` menor a reservados 409, cancelar evento cancela tickets y deja el contador en 0. **Reserva atómica:** se reserva antes de crear el ticket, sin lugar no se crea nada, compensación si falla la creación, motivo real si el evento cambió, reintento si se liberó un lugar, cancelación que devuelve los lugares una sola vez. **Repositories:** filtros de las consultas atómicas (`$ifNull`, cancelación condicionada) y el cupo suma solo activos. **Email:** HTML escapado y sin configuración no envía |
+| `tests/tickets.test.js` | **Inscripción:** ticket `confirmed` con el usuario de la sesión, código de reserva, email enviado, `quantity` por defecto, email que falla sin perder la inscripción, evento inexistente / borrador 404, cancelado / finalizado / vencido 409, `quantity` inválida 400, duplicado 409, sin cupo 409 con los lugares que quedan, cupo liberado al cancelar, código repetido. **Consultas:** mis tickets solo propios, inscriptos con resumen de cupo. **Cancelación:** `cancelled` + `cancelledAt` sin borrar, doble cancelación y evento finalizado 409, email al dueño del ticket y cancelación válida aunque el email falle. **Propiedad:** dueño, otro usuario 403, admin, 404, 401, organizer ajeno 403. **Consistencia:** `capacity` menor a reservados 409, cancelar evento cancela tickets y deja el contador en 0. **Reserva atómica:** se reserva antes de crear el ticket, sin lugar no se crea nada, compensación si falla la creación, motivo real si el evento cambió, reintento si se liberó un lugar, cancelación que devuelve los lugares una sola vez. **Repositories:** filtros de las consultas atómicas (`$ifNull`, cancelación condicionada) y el cupo suma solo activos. **Email:** HTML escapado y sin configuración no envía |
 | `tests/passport.strategies.test.js` | **register:** éxito sin contraseña en la respuesta, hash bcrypt, rol ignorado, duplicado (409), campos faltantes, inválidos o de solo espacios (400). **login:** éxito con `{ id, email, role }` y el mismo 401 para email inexistente y contraseña incorrecta. **current:** token válido, sin cookie, alterado, mal formado, vencido, de otra clave, sin firma (`alg: none`) y usuario inexistente |
 | `tests/jwt.test.js` | Helper de JWT: payload, expiración y token alterado |
 
