@@ -10,7 +10,7 @@ Esta es la **entrega final**: la versión completa e integrada de la API constru
 - **Inscripciones:** tickets con **reserva atómica del cupo**, sin duplicados, cancelación que libera los lugares y emails de confirmación y cancelación con Nodemailer.
 - **Arquitectura en capas:** routes, middlewares, controllers, services, repositories, DAO, DTO y models, con manejo de errores centralizado.
 
-Para probarla rápido: [Instalación](#instalación) → [Usuarios de prueba](#usuarios-de-prueba) (`npm run seed`) → [Colección de Postman](#colección-de-postman) con el [flujo completo](#flujo-completo-verificado).
+Para probarla rápido: [Instalación](#instalación) → [Usuarios de prueba](#usuarios-de-prueba) (`npm run seed`) → [Colección de Postman](#colección-de-postman) con el [flujo completo](#flujo-completo-verificado). Las decisiones de diseño más importantes están explicadas en [Decisiones técnicas](#decisiones-técnicas).
 
 ## Versiones por entrega
 
@@ -126,6 +126,32 @@ POST /api/events/:eid/tickets
   → events.dao.js / tickets.dao.js → models
   ← TicketDTO                  respuesta sin datos internos
 ```
+
+## Decisiones técnicas
+
+**¿Por qué Repository si ya está Mongoose?**
+Mongoose resuelve *cómo* hablar con MongoDB; el repository le da al service métodos en el lenguaje del negocio (`reserveSeats`, `cancelTicket`, `getActiveByUserAndEvent`) sin que el service sepa de `findOneAndUpdate`, `$expr` o `populate`. Eso trae tres ventajas concretas en este proyecto:
+
+- Los **117 tests** corren sin base de datos: los services reciben repositories falsos en memoria por el constructor.
+- Si cambiara la persistencia, el impacto queda en los DAO; los services y controllers no se tocan.
+- La regla "solo los DAO usan modelos" está comprobada por un test ([`tests/architecture.test.js`](tests/architecture.test.js)).
+
+**¿Por qué el token va en una cookie HTTP Only y no en `localStorage`?**
+Lo que está en `localStorage` lo puede leer cualquier script de la página: si alguien lograra inyectar JavaScript (XSS), se llevaría el token. Una cookie `httpOnly` no es accesible desde JavaScript, y el navegador la envía sola en cada petición. Además:
+
+- `sameSite: "lax"` evita que se envíe en peticiones que vienen de otros sitios (CSRF).
+- `secure` en producción, para que solo viaje por HTTPS.
+- `maxAge` igual a la duración del token, y el logout la borra desde el servidor.
+- El JWT solo lleva `id`, `email` y `role`: nunca la contraseña.
+
+**¿Cómo se evita que dos personas reserven el último lugar al mismo tiempo?**
+Con una **reserva atómica**: la condición de cupo y la suma de lugares van en una sola operación de MongoDB sobre el evento. Antes de este cambio, 20 inscripciones simultáneas a un evento de 1 lugar dejaban 18 inscriptos; ahora entra exactamente 1 (detalle y mediciones en [Reserva atómica de cupos](#reserva-atómica-de-cupos)).
+
+**¿Por qué cancelar en lugar de borrar?**
+Eventos y tickets cancelados quedan en la base con su estado (y `cancelledAt` en los tickets): se conserva el historial y los lugares se liberan solos, porque el cupo cuenta solo los tickets activos.
+
+**¿Por qué un email que falla no frena la operación?**
+La inscripción o la cancelación es lo principal; el email es un aviso. Si el servidor de correo no responde, la operación queda hecha, el error se registra en el servidor y la respuesta lo indica con `emailSent: false`.
 
 ## Eventos
 
