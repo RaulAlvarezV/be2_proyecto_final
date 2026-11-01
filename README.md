@@ -894,7 +894,7 @@ Ruta inexistente → `404`
 
 ## Flujo completo verificado
 
-Los 10 casos que pide la entrega final. Todos están en la [colección de Postman](#colección-de-postman) y tienen su captura en las evidencias de las entregas:
+Los 10 casos que pide la entrega final. Todos están en la [colección de Postman](#colección-de-postman), que corre completa con las 47 verificaciones aprobadas ([captura del Runner](docs/evidencias/final-postman-runner.png)), y cada uno tiene su captura en las evidencias de las entregas:
 
 | # | Caso | Resultado | Evidencia |
 | --- | --- | --- | --- |
@@ -903,7 +903,7 @@ Los 10 casos que pide la entrega final. Todos están en la [colección de Postma
 | 3 | `organizer` crea un evento → `user` se inscribe → email → cupo descontado | `201` → `201` → email recibido → `available: 0` | [evento](docs/evidencias/p8-crear-evento-201.png) · [inscripción](docs/evidencias/p8-inscripcion-201.png) · [email](docs/evidencias/p7-email-recibido.png) · [cupo](docs/evidencias/p8-ticket-populate-sin-password.png) |
 | 4 | `user` se inscribe de nuevo al mismo evento | `409` "Ya tenés una inscripción activa para este evento" | [captura](docs/evidencias/p7-duplicado-409.png) |
 | 5 | Inscripción a un evento sin cupo | `409` "No hay cupos suficientes: ..." | [captura](docs/evidencias/p8-error-negocio-409.png) |
-| 6 | `user` cancela su ticket → cupo liberado → nueva inscripción | `200` → `201` | [cancelación](docs/evidencias/p7-cancelacion-propia-200.png) · [nueva inscripción](docs/evidencias/p7-cupo-liberado-201.png) |
+| 6 | `user` cancela su ticket → cupo liberado → nueva inscripción | `200` (y email de cancelación) → `201` | [cancelación](docs/evidencias/p7-cancelacion-propia-200.png) · [email](docs/evidencias/final-email-cancelacion.png) · [nueva inscripción](docs/evidencias/p7-cupo-liberado-201.png) |
 | 7 | `organizer` modifica un evento ajeno | `403` | [captura](docs/evidencias/p6-editar-ajeno-403.png) |
 | 8 | `admin` modifica el evento de otro organizador | `200` | [captura](docs/evidencias/p6-admin-edita-200.png) |
 | 9 | Respuestas de usuario, evento y ticket sin password | Ninguna incluye `password` | [current](docs/evidencias/p8-current-sin-password.png) · [registro](docs/evidencias/p8-registro-201.png) · [ticket con populate](docs/evidencias/p8-ticket-populate-sin-password.png) |
@@ -981,6 +981,16 @@ MONGO_TEST_URL=mongodb://localhost:27017/be2_seats_test node --test tests/seats.
 | `tests/jwt.test.js` | Helper de JWT: payload, expiración y token alterado |
 
 ## Evidencias
+
+### Entrega final
+
+**Colección de Postman corrida completa en el Runner:** los 10 casos del flujo final con los usuarios de `npm run seed`. Las 47 verificaciones pasan, sin errores.
+
+![Runner de Postman con las 47 verificaciones aprobadas](docs/evidencias/final-postman-runner.png)
+
+**Email de cancelación:** al cancelar su ticket, la usuaria recibe el aviso con el evento, los lugares liberados y el código de reserva.
+
+![Email de cancelación de inscripción en Ethereal](docs/evidencias/final-email-cancelacion.png)
 
 ### Arquitectura con DAO, Repository y DTO (Pre-entrega 8)
 
