@@ -68,6 +68,10 @@ class EventsRepository {
         return this.setReservedSeats(id, 0);
     }
 
+    async countByOrganizer(organizerId) {
+        return this.dao.count({ organizer: organizerId });
+    }
+
     async getAllIds() {
         return this.dao.findIds();
     }
