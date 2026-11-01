@@ -14,7 +14,7 @@ const CODE_ATTEMPTS = 3;
 // Si la reserva falla pero al releer el evento hay lugar (alguien canceló en el medio), se reintenta una vez
 const RESERVE_ATTEMPTS = 2;
 
-// quantity es opcional (por defecto 1 lugar); si llega, tiene que ser un entero mayor a cero
+// Mensaje de cupo insuficiente con los lugares que quedan
 function noSeatsMessage(available) {
     const detail = available > 0 ? `quedan ${available} lugares disponibles` : "el evento no tiene lugares disponibles";
     return `No hay cupos suficientes: ${detail}`;
@@ -38,6 +38,7 @@ function ensureOpenForRegistration(event) {
     }
 }
 
+// quantity es opcional (por defecto 1 lugar); si llega, tiene que ser un entero mayor a cero
 function validateQuantity(value) {
     if (value === undefined) {
         return DEFAULT_QUANTITY;
