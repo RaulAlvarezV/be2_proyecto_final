@@ -22,8 +22,8 @@ export async function getEventTickets(req, res, next) {
 // req.ticket lo deja authorizeTicketOwnerOrAdmin
 export async function cancelTicket(req, res, next) {
     try {
-        const ticket = await ticketsService.cancel(req.ticket);
-        res.status(200).json({ status: "success", message: "Inscripción cancelada", payload: ticket });
+        const { ticket, emailSent } = await ticketsService.cancel(req.ticket);
+        res.status(200).json({ status: "success", message: "Inscripción cancelada", payload: ticket, emailSent });
     } catch (error) {
         next(error);
     }

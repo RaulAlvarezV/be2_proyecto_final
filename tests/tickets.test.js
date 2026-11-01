@@ -83,18 +83,31 @@ function createFakeEvents(events = [publishedEvent()]) {
 function createFakeMailer({ fail = false } = {}) {
     return {
         sent: [],
+        cancellations: [],
         async sendTicketConfirmation(data) {
             if (fail) {
                 throw new Error("SMTP caído");
             }
             this.sent.push(data);
             return true;
+        },
+        async sendTicketCancellation(data) {
+            if (fail) {
+                throw new Error("SMTP caído");
+            }
+            this.cancellations.push(data);
+            return true;
         }
     };
 }
 
+// Repository falso de usuarios: el email del dueño del ticket para el aviso de cancelación
+const usersRepository = {
+    async getById(id) { return [player, otherPlayer, admin].find(user => user.id === id) ?? null; }
+};
+
 function createService({ tickets = createFakeTickets(), events = createFakeEvents(), mailer = createFakeMailer() } = {}) {
-    return { service: new TicketsService(tickets, events, mailer), tickets, events, mailer };
+    return { service: new TicketsService(tickets, events, mailer, usersRepository), tickets, events, mailer };
 }
 
 // Ejecuta un middleware como lo hace Express y devuelve cómo terminó
@@ -266,11 +279,37 @@ describe("Cancelación (TicketsService.cancel)", () => {
         const { service, tickets } = createService();
         await service.create("ev1", 1, player);
 
-        const cancelled = await service.cancel(tickets.tickets[0]);
+        const { ticket: cancelled } = await service.cancel(tickets.tickets[0]);
 
         assert.equal(cancelled.status, TICKET_STATUS.CANCELLED);
         assert.ok(cancelled.cancelledAt instanceof Date);
         assert.equal(tickets.tickets.length, 1);
+    });
+
+    test("avisa por email al dueño del ticket, aunque cancele un admin", async () => {
+        const { service, tickets, mailer } = createService();
+        await service.create("ev1", 2, player);
+
+        const { emailSent } = await service.cancel(tickets.tickets[0]);
+
+        assert.equal(emailSent, true);
+        assert.equal(mailer.cancellations.length, 1);
+        assert.equal(mailer.cancellations[0].to, player.email);
+        assert.equal(mailer.cancellations[0].quantity, 2);
+        assert.equal(mailer.cancellations[0].reservationCode, tickets.tickets[0].reservationCode);
+    });
+
+    test("si el email de cancelación falla, la cancelación igual se hace", async () => {
+        const mailer = createFakeMailer();
+        const { service, tickets, events } = createService({ mailer });
+        await service.create("ev1", 1, player);
+        mailer.sendTicketCancellation = async () => { throw new Error("SMTP caído"); };
+
+        const { ticket, emailSent } = await service.cancel(tickets.tickets[0]);
+
+        assert.equal(emailSent, false);
+        assert.equal(ticket.status, TICKET_STATUS.CANCELLED);
+        assert.equal(events.events[0].reservedSeats, 0);
     });
 
     test("no se cancela dos veces ni un ticket de un evento finalizado", async () => {

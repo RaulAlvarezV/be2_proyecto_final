@@ -23,40 +23,55 @@ export class MailService {
         this.from = from;
     }
 
-    // Devuelve true si el email salió. Sin configuración no intenta enviar (la inscripción igual es válida)
-    async sendTicketConfirmation({ to, eventTitle, eventDate, eventLocation, quantity, reservationCode }) {
+    // Arma y envía un aviso sobre un ticket. Devuelve true si el email salió.
+    // Sin configuración no intenta enviar: la operación (inscripción o cancelación) igual es válida
+    async sendTicketMail({ heading, summary, to, eventTitle, eventDate, eventLocation, quantity, reservationCode }) {
         if (!this.transporter) {
             return false;
         }
 
-        const title = escapeHtml(eventTitle);
-        const location = escapeHtml(eventLocation);
         const places = quantity === 1 ? "1 lugar" : `${quantity} lugares`;
 
         await this.transporter.sendMail({
             from: this.from,
             to,
-            subject: `Inscripción confirmada: ${eventTitle}`,
+            subject: `${heading}: ${eventTitle}`,
             text: [
-                `Tu inscripción a ${eventTitle} fue confirmada.`,
+                summary(eventTitle),
                 `Fecha: ${formatDate(eventDate)}`,
                 `Lugar: ${eventLocation}`,
-                `Reservaste: ${places}`,
+                `Lugares: ${places}`,
                 `Código de reserva: ${reservationCode}`
             ].join("\n"),
             html: `
-                <h1>Inscripción confirmada</h1>
-                <p>Tu inscripción a <strong>${title}</strong> fue confirmada.</p>
+                <h1>${escapeHtml(heading)}</h1>
+                <p>${summary(`<strong>${escapeHtml(eventTitle)}</strong>`)}</p>
                 <ul>
                     <li>Fecha: ${escapeHtml(formatDate(eventDate))}</li>
-                    <li>Lugar: ${location}</li>
-                    <li>Reservaste: ${places}</li>
+                    <li>Lugar: ${escapeHtml(eventLocation)}</li>
+                    <li>Lugares: ${places}</li>
                 </ul>
                 <p>Código de reserva: <strong>${escapeHtml(reservationCode)}</strong></p>
             `
         });
 
         return true;
+    }
+
+    async sendTicketConfirmation(data) {
+        return this.sendTicketMail({
+            ...data,
+            heading: "Inscripción confirmada",
+            summary: title => `Tu inscripción a ${title} fue confirmada.`
+        });
+    }
+
+    async sendTicketCancellation(data) {
+        return this.sendTicketMail({
+            ...data,
+            heading: "Inscripción cancelada",
+            summary: title => `Tu inscripción a ${title} fue cancelada y los lugares quedaron libres.`
+        });
     }
 }
 

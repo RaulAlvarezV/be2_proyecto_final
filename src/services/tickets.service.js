@@ -1,6 +1,7 @@
 import { ticketsRepository } from "../repositories/tickets.repository.js";
 import { mailService } from "./mail.service.js";
 import { eventsRepository } from "../repositories/events.repository.js";
+import { usersRepository } from "../repositories/users.repository.js";
 import { EVENT_STATUS } from "../config/event-status.js";
 import { TICKET_STATUS } from "../config/ticket-status.js";
 import { currentStatus } from "./events.service.js";
@@ -56,17 +57,18 @@ function validateQuantity(value) {
 }
 
 export class TicketsService {
-    constructor(repository, eventsRepository, mailer) {
+    constructor(repository, eventsRepository, mailer, usersRepository) {
         this.repository = repository;
         this.eventsRepository = eventsRepository;
         this.mailer = mailer;
+        this.usersRepository = usersRepository;
     }
 
-    // La operación principal es el ticket; el email es una notificación. Si falla, la inscripción sigue siendo válida:
-    // el error queda en la consola del servidor y la respuesta avisa que no se pudo enviar
-    async notifyConfirmation(email, event, ticket) {
+    // La operación principal es el ticket; el email es una notificación. Si falla, la inscripción o la cancelación
+    // siguen siendo válidas: el error queda en la consola del servidor y la respuesta avisa que no se pudo enviar
+    async notify(send, label, email, event, ticket) {
         try {
-            return await this.mailer.sendTicketConfirmation({
+            return await send({
                 to: email,
                 eventTitle: event.title,
                 eventDate: event.date,
@@ -75,9 +77,23 @@ export class TicketsService {
                 reservationCode: ticket.reservationCode
             });
         } catch (error) {
-            console.error("No se pudo enviar el email de confirmación:", error.message);
+            console.error(`No se pudo enviar el email de ${label}:`, error.message);
             return false;
         }
+    }
+
+    async notifyConfirmation(email, event, ticket) {
+        return this.notify(data => this.mailer.sendTicketConfirmation(data), "confirmación", email, event, ticket);
+    }
+
+    // Si cancela un admin, el aviso le llega igual al dueño del ticket (no a quien hizo el pedido)
+    async notifyCancellation(event, ticket) {
+        const owner = await this.usersRepository.getById(ticket.user);
+        if (!owner || !event) {
+            return false;
+        }
+
+        return this.notify(data => this.mailer.sendTicketCancellation(data), "cancelación", owner.email, event, ticket);
     }
 
     // El ticket se crea con un código de reserva aleatorio. Si justo se repite (muy poco probable),
@@ -191,8 +207,10 @@ export class TicketsService {
 
         await this.eventsRepository.releaseSeats(cancelledTicket.event, cancelledTicket.quantity);
 
-        return new TicketDTO(cancelledTicket);
+        const emailSent = await this.notifyCancellation(event, cancelledTicket);
+
+        return { ticket: new TicketDTO(cancelledTicket), emailSent };
     }
 }
 
-export const ticketsService = new TicketsService(ticketsRepository, eventsRepository, mailService);
+export const ticketsService = new TicketsService(ticketsRepository, eventsRepository, mailService, usersRepository);
